@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getTranscript, deleteTranscript } from '../api/transcripts';
 import { extractRequirements, getRequirementByTranscript } from '../api/requirements';
-import { runPipeline } from '../api/pipeline';
+import { startPipeline, runExtraction, runSearch, runRanking } from '../api/pipeline';
 import type { Transcript } from '../types/transcript';
 import type { ExtractedRequirement } from '../types/requirement';
 import StatusBadge from '../components/common/StatusBadge';
@@ -17,6 +17,7 @@ export default function TranscriptDetailPage() {
   const [loading, setLoading] = useState(true);
   const [extracting, setExtracting] = useState(false);
   const [runningPipeline, setRunningPipeline] = useState(false);
+  const [pipelineStage, setPipelineStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,12 +61,24 @@ export default function TranscriptDetailPage() {
     setRunningPipeline(true);
     setError(null);
     try {
-      const run = await runPipeline(transcript.id);
+      setPipelineStage('Starting pipeline...');
+      const run = await startPipeline(transcript.id);
+
+      setPipelineStage('Extracting requirements...');
+      await runExtraction(run.id);
+
+      setPipelineStage('Searching listings...');
+      await runSearch(run.id);
+
+      setPipelineStage('Ranking results...');
+      await runRanking(run.id);
+
       navigate(`/pipeline/${run.id}/search`);
     } catch {
-      setError('Failed to start pipeline.');
+      setError('Pipeline failed. Please try again.');
     } finally {
       setRunningPipeline(false);
+      setPipelineStage(null);
     }
   };
 
@@ -141,7 +154,7 @@ export default function TranscriptDetailPage() {
         <div className="border border-ink bg-surface p-8 flex flex-col items-center gap-4">
           <div className="h-6 w-6 animate-spin border-2 border-ink border-t-transparent" />
           <p className="text-[11px] uppercase tracking-[1px] opacity-70">
-            Running pipeline — extracting, searching &amp; ranking...
+            {pipelineStage || 'Running pipeline...'}
           </p>
         </div>
       )}
