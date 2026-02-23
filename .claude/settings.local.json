@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(npx tsc:*)",
+      "Bash(echo:*)",
+      "Bash(source:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(npm run build:*)",
+      "WebFetch(domain:rapidapi.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.linkedin.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:apipheny.io)",
+      "mcp__ide__getDiagnostics",
+      "Bash(./venv/bin/python:*)",
+      "Bash(./venv/bin/pip install:*)"
+    ]
+  }
+}
