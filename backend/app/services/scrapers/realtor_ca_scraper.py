@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 from app.services.scrapers.base_scraper import BaseScraper, ScraperError
-from app.services.scrapers.utils import build_browser_headers
+from app.services.scrapers.utils import build_browser_headers, nominatim_lock
 
 logger = logging.getLogger(__name__)
 
@@ -36,19 +36,20 @@ async def _geocode_for_realtor(
 ) -> dict[str, float] | None:
     """Geocode a location to lat/lng for Realtor.ca search."""
     try:
-        response = await http_client.get(
-            _NOMINATIM_URL,
-            params={
-                "q": location,
-                "format": "json",
-                "limit": "1",
-                "countrycodes": "ca",
-            },
-            headers=_NOMINATIM_HEADERS,
-            timeout=10.0,
-        )
-        response.raise_for_status()
-        data = response.json()
+        async with nominatim_lock:
+            response = await http_client.get(
+                _NOMINATIM_URL,
+                params={
+                    "q": location,
+                    "format": "json",
+                    "limit": "1",
+                    "countrycodes": "ca",
+                },
+                headers=_NOMINATIM_HEADERS,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = response.json()
     except (httpx.HTTPError, ValueError) as e:
         logger.warning("Geocoding failed for '%s': %s", location, e)
         return None

@@ -101,20 +101,31 @@ def _map_zillow_prop_to_listing(
     if price is None:
         price = _parse_int_from_string(prop.get("price"))
 
-    # Beds / baths
-    beds = prop.get("beds") or prop.get("bedrooms")
-    baths = prop.get("baths") or prop.get("bathrooms")
+    # Beds / baths -- use None-safe fallback to preserve 0 (studios)
+    beds = prop.get("beds")
+    if beds is None:
+        beds = prop.get("bedrooms")
+    baths = prop.get("baths")
+    if baths is None:
+        baths = prop.get("bathrooms")
 
     # Square footage -- may be string like "1,010 sqft"
-    sqft = _parse_int_from_string(prop.get("livingArea") or prop.get("area"))
+    living_area = prop.get("livingArea")
+    if living_area is None:
+        living_area = prop.get("area")
+    sqft = _parse_int_from_string(living_area)
 
     # Days on market -- may be string like "1 day"
     days = _parse_int_from_string(prop.get("daysOnZillow"))
 
-    # Coordinates
+    # Coordinates -- use None-safe fallback to preserve 0.0
     lat_long = prop.get("latLong") or {}
-    latitude = lat_long.get("latitude") or prop.get("latitude")
-    longitude = lat_long.get("longitude") or prop.get("longitude")
+    latitude = lat_long.get("latitude")
+    if latitude is None:
+        latitude = prop.get("latitude")
+    longitude = lat_long.get("longitude")
+    if longitude is None:
+        longitude = prop.get("longitude")
 
     # Listing URL -- may be relative
     detail_url = prop.get("detailUrl") or ""
@@ -122,7 +133,9 @@ def _map_zillow_prop_to_listing(
         detail_url = f"https://www.zillow.com{detail_url}"
 
     # External ID
-    ext_id = prop.get("id") or prop.get("zpid")
+    ext_id = prop.get("id")
+    if ext_id is None:
+        ext_id = prop.get("zpid")
 
     # Home type
     home_type = prop.get("homeType", "")

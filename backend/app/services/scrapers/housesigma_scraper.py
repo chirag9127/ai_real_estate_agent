@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from app.services.scrapers.base_scraper import BaseScraper, ScraperError
-from app.services.scrapers.utils import build_browser_headers, strip_province_suffix
+from app.services.scrapers.utils import build_browser_headers, strip_province_suffix, _first_not_none
 
 logger = logging.getLogger(__name__)
 
@@ -159,10 +159,10 @@ class HouseSigmaScraper(BaseScraper):
                 "id": str(listing_id),
                 "source": self.SOURCE_NAME,
                 "address": full_address,
-                "price": prop.get("price") or prop.get("list_price"),
-                "bedrooms": prop.get("bedroom") or prop.get("bedrooms"),
-                "bathrooms": prop.get("bathroom") or prop.get("bathrooms"),
-                "sqft": prop.get("sqft") or prop.get("area"),
+                "price": _first_not_none(prop.get("price"), prop.get("list_price")),
+                "bedrooms": _first_not_none(prop.get("bedroom"), prop.get("bedrooms")),
+                "bathrooms": _first_not_none(prop.get("bathroom"), prop.get("bathrooms")),
+                "sqft": _first_not_none(prop.get("sqft"), prop.get("area")),
                 "property_type": prop.get("type_name", ""),
                 "description": prop.get("description", ""),
                 "image_url": prop.get("photo_url") or prop.get("image"),

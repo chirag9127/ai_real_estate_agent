@@ -12,6 +12,7 @@ import httpx
 
 from app.config import settings
 from app.services.scrapers.base_scraper import BaseScraper, ScraperError
+from app.services.scrapers.utils import nominatim_lock
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +38,15 @@ async def _geocode_location(
 ) -> dict[str, float] | None:
     """Geocode a location string via Nominatim and return map bounds."""
     try:
-        response = await http_client.get(
-            NOMINATIM_URL,
-            params={"q": location, "format": "json", "limit": "1"},
-            headers=NOMINATIM_HEADERS,
-            timeout=10.0,
-        )
-        response.raise_for_status()
-        data = response.json()
+        async with nominatim_lock:
+            response = await http_client.get(
+                NOMINATIM_URL,
+                params={"q": location, "format": "json", "limit": "1"},
+                headers=NOMINATIM_HEADERS,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = response.json()
     except (httpx.HTTPError, ValueError) as e:
         logger.warning("Geocoding failed for '%s': %s", location, e)
         return None

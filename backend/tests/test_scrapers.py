@@ -103,8 +103,8 @@ class TestScraperRegistry:
         scraper = ScraperRegistry.get_scraper("Custom")
         assert isinstance(scraper, CustomScraper)
 
-        # Clean up
-        del ScraperRegistry._scrapers["Custom"]
+        # Clean up -- restore default scrapers
+        ScraperRegistry.reset()
 
     def test_register_non_scraper_raises(self):
         with pytest.raises(TypeError, match="must be a subclass"):

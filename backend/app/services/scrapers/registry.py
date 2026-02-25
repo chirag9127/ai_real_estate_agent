@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import Type
 
 from app.services.scrapers.base_scraper import BaseScraper, ScraperError
 from app.services.scrapers.condos_ca_scraper import CondosCaScraper
@@ -13,24 +13,31 @@ from app.services.scrapers.realtor_ca_scraper import RealtorCaScraper
 from app.services.scrapers.zillow_scraper import ZillowScraper
 from app.services.scrapers.zoocasa_scraper import ZoocasaScraper
 
-if TYPE_CHECKING:
-    from typing import Type
-
 logger = logging.getLogger(__name__)
+
+# Default scraper classes -- kept separate from the mutable registry so that
+# ``_scrapers`` can be reset to a known-good state between tests.
+_DEFAULT_SCRAPERS: dict[str, Type[BaseScraper]] = {
+    "Zillow": ZillowScraper,
+    "HouseSigma": HouseSigmaScraper,
+    "Realtor.ca": RealtorCaScraper,
+    "Zoocasa": ZoocasaScraper,
+    "Condos.ca": CondosCaScraper,
+    "Property.ca": PropertyCaScraper,
+}
 
 
 class ScraperRegistry:
     """Registry and factory for real estate scrapers."""
 
-    # Map of source names to scraper classes
-    _scrapers: dict[str, Type[BaseScraper]] = {
-        "Zillow": ZillowScraper,
-        "HouseSigma": HouseSigmaScraper,
-        "Realtor.ca": RealtorCaScraper,
-        "Zoocasa": ZoocasaScraper,
-        "Condos.ca": CondosCaScraper,
-        "Property.ca": PropertyCaScraper,
-    }
+    # Mutable copy -- mutations (e.g. register_scraper) don't affect the
+    # default set, and tests can call ``reset()`` to restore it.
+    _scrapers: dict[str, Type[BaseScraper]] = dict(_DEFAULT_SCRAPERS)
+
+    @classmethod
+    def reset(cls) -> None:
+        """Restore the registry to its default set of scrapers."""
+        cls._scrapers = dict(_DEFAULT_SCRAPERS)
 
     @classmethod
     def get_scraper(cls, source_name: str) -> BaseScraper:
@@ -66,7 +73,7 @@ class ScraperRegistry:
         for name, scraper_class in cls._scrapers.items():
             try:
                 scrapers.append((name, scraper_class()))
-            except (ScraperError, Exception) as e:
+            except Exception as e:
                 logger.warning(
                     "Skipping scraper %s: initialization failed: %s",
                     name, e,

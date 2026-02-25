@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
+
+# Global lock to serialize Nominatim geocoding requests across scrapers.
+# Nominatim's usage policy requires at most 1 request per second and no
+# concurrent requests.  All scrapers that call Nominatim should acquire
+# this lock before making a request.
+nominatim_lock = asyncio.Lock()
 
 
 # Common Canadian province suffixes to strip from location strings
@@ -96,6 +103,17 @@ def build_browser_headers(
     return headers
 
 
+def _first_not_none(*values: Any) -> Any:
+    """Return the first value that is not None, or None if all are None.
+
+    Unlike the ``or`` operator this preserves valid falsy values such as
+    ``0``, ``0.0``, and ``""``."""
+    for v in values:
+        if v is not None:
+            return v
+    return None
+
+
 def parse_standard_listing(
     prop: dict[str, Any],
     source_name: str,
@@ -148,7 +166,7 @@ def parse_standard_listing(
         listing_url = ""
 
     # Parse price (may be numeric or string like "$1,200,000")
-    price = prop.get("price") or prop.get("listPrice")
+    price = _first_not_none(prop.get("price"), prop.get("listPrice"))
     if isinstance(price, str):
         try:
             price = float(price.replace("$", "").replace(",", "").strip())
@@ -160,15 +178,15 @@ def parse_standard_listing(
         "source": source_name,
         "address": full_address,
         "price": price,
-        "bedrooms": prop.get("bedrooms") or prop.get("beds"),
-        "bathrooms": prop.get("bathrooms") or prop.get("baths"),
-        "sqft": prop.get("sqft") or prop.get("squareFeet"),
+        "bedrooms": _first_not_none(prop.get("bedrooms"), prop.get("beds")),
+        "bathrooms": _first_not_none(prop.get("bathrooms"), prop.get("baths")),
+        "sqft": _first_not_none(prop.get("sqft"), prop.get("squareFeet")),
         "property_type": prop.get("propertyType") or prop.get("type", default_property_type),
         "description": prop.get("description", ""),
         "image_url": prop.get("imageUrl") or prop.get("photo", ""),
         "listing_url": listing_url,
-        "latitude": prop.get("latitude") or prop.get("lat"),
-        "longitude": prop.get("longitude") or prop.get("lng"),
+        "latitude": _first_not_none(prop.get("latitude"), prop.get("lat")),
+        "longitude": _first_not_none(prop.get("longitude"), prop.get("lng")),
         "neighborhood": neighborhood,
         "days_on_market": prop.get("daysOnMarket"),
         "year_built": prop.get("yearBuilt"),
