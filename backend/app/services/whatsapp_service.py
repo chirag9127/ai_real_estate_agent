@@ -73,7 +73,7 @@ def handle_incoming_message(
                 None,
             )
         # Previous run finished or failed -- allow a new one
-        del _active_conversations[from_number]
+        _active_conversations.pop(from_number, None)
 
     # Create a transcript from the WhatsApp message
     transcript = Transcript(
@@ -125,6 +125,19 @@ async def run_pipeline_async(pipeline_run_id: int, from_number: str) -> None:
     """
     db = SessionLocal()
     try:
+        # Defensive check: ensure the pipeline run exists
+        pipeline_run = (
+            db.query(PipelineRun).filter(PipelineRun.id == pipeline_run_id).first()
+        )
+        if not pipeline_run:
+            logger.error("Pipeline run %d not found for background execution", pipeline_run_id)
+            send_whatsapp_message(
+                from_number,
+                "Sorry, something went wrong starting your search. Please try again.",
+            )
+            clear_conversation(from_number)
+            return
+
         llm = get_llm_provider()
 
         # Each step returns the updated PipelineRun.  If the status flips to
@@ -160,6 +173,15 @@ async def run_pipeline_async(pipeline_run_id: int, from_number: str) -> None:
         logger.exception(
             "Unexpected error in WhatsApp background pipeline %d", pipeline_run_id
         )
+        # Mark the pipeline run as failed so the DB state is consistent
+        try:
+            run = db.query(PipelineRun).filter(PipelineRun.id == pipeline_run_id).first()
+            if run and run.status == PipelineStatus.IN_PROGRESS.value:
+                run.status = PipelineStatus.FAILED.value
+                run.error_message = "Unexpected error in background pipeline"
+                db.commit()
+        except Exception:
+            logger.exception("Failed to mark pipeline run %d as failed", pipeline_run_id)
         send_whatsapp_message(
             from_number,
             "An unexpected error occurred while processing your request. Please try again.",
