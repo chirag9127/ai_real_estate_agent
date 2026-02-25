@@ -10,14 +10,14 @@ const statusStyles: Record<string, { bg: string; border: string }> = {
 };
 
 export default function StatusBadge({ status }: { status: string }) {
-  const style = statusStyles[status] || { bg: 'transparent', border: '#0d0d0d' };
+  const style = statusStyles[status] ?? { bg: 'transparent', border: '#0d0d0d' };
   return (
     <span
       className="inline-block px-2.5 py-0.5 rounded-full text-[9px] uppercase tracking-[0.5px] font-medium border"
       style={{
         background: style.bg,
         borderColor: style.border,
-        color: style.bg === 'transparent' ? '#0d0d0d' : '#0d0d0d',
+        color: '#0d0d0d',
       }}
     >
       {status.replace('_', ' ')}

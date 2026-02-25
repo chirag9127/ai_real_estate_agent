@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { listTranscripts } from '../api/transcripts';
 import { listPipelineRuns } from '../api/pipeline';
-import type { TranscriptListItem } from '../types/transcript';
-import type { PipelineRun } from '../types/pipeline';
+import { listTranscripts } from '../api/transcripts';
+import ErrorAlert from '../components/common/ErrorAlert';
+import LoadingSpinner from '../components/common/LoadingSpinner';
 import StatusBadge from '../components/common/StatusBadge';
 import PipelineProgress from '../components/pipeline/PipelineProgress';
-import LoadingSpinner from '../components/common/LoadingSpinner';
-import ErrorAlert from '../components/common/ErrorAlert';
+import type { PipelineRun } from '../types/pipeline';
+import type { TranscriptListItem } from '../types/transcript';
 
 function KPICard({
   color,
@@ -73,8 +73,8 @@ function FilterPill({
         color: show ? '#d4d4d4' : '#0d0d0d',
       }}
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => { setHovered(true); }}
+      onMouseLeave={() => { setHovered(false); }}
     >
       {children}
     </button>
@@ -100,7 +100,7 @@ export default function DashboardPage() {
         setLoading(false);
       }
     }
-    load();
+    void load();
   }, []);
 
   if (loading) return <LoadingSpinner />;
@@ -178,18 +178,18 @@ export default function DashboardPage() {
         <div className="p-6 border-b border-ink flex justify-between items-center">
           <div className="font-heading uppercase">Recent Transcripts</div>
           <div className="flex gap-3">
-            <FilterPill active={activeFilter === 'All'} onClick={() => setActiveFilter('All')}>
+            <FilterPill active={activeFilter === 'All'} onClick={() => { setActiveFilter('All'); }}>
               All
             </FilterPill>
             <FilterPill
               active={activeFilter === 'Extracted'}
-              onClick={() => setActiveFilter('Extracted')}
+              onClick={() => { setActiveFilter('Extracted'); }}
             >
               Extracted
             </FilterPill>
             <FilterPill
               active={activeFilter === 'Pending'}
-              onClick={() => setActiveFilter('Pending')}
+              onClick={() => { setActiveFilter('Pending'); }}
             >
               Pending
             </FilterPill>
@@ -210,7 +210,7 @@ export default function DashboardPage() {
               >
                 <div className="px-6 py-3 flex flex-col gap-0.5">
                   <span className="font-heading text-[18px] font-medium">
-                    {t.filename || `Transcript #${t.id}`}
+                    {t.filename ?? `Transcript #${t.id}`}
                   </span>
                   <span className="opacity-70 uppercase text-[10px]">
                     {t.upload_method} upload

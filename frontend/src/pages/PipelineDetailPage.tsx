@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getPipelineRun } from '../api/pipeline';
 import { getRequirementByTranscript } from '../api/requirements';
-import type { PipelineRun } from '../types/pipeline';
+import ErrorAlert from '../components/common/ErrorAlert';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import StatusBadge from '../components/common/StatusBadge';
 import PipelineProgress, {
   STAGES,
   completedAtKey,
@@ -10,9 +12,7 @@ import PipelineProgress, {
   getStageStyle,
   getStageRoute,
 } from '../components/pipeline/PipelineProgress';
-import StatusBadge from '../components/common/StatusBadge';
-import LoadingSpinner from '../components/common/LoadingSpinner';
-import ErrorAlert from '../components/common/ErrorAlert';
+import type { PipelineRun } from '../types/pipeline';
 
 export default function PipelineDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -36,7 +36,7 @@ export default function PipelineDetailPage() {
         setLoading(false);
       }
     }
-    load();
+    void load();
   }, [runId]);
 
   if (loading) return <LoadingSpinner />;
