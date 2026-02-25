@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import Session
-
-from app.llm.base import LLMProvider
 from app.llm.prompts.ranking import RANKING_SYSTEM_PROMPT, build_ranking_user_prompt
-from app.models.listing import Listing
 from app.models.ranking import RankedResult
-from app.models.requirement import ExtractedRequirement
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.llm.base import LLMProvider
+    from app.models.listing import Listing
+    from app.models.requirement import ExtractedRequirement
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +78,10 @@ def _check_property_type(listing: Listing, requirement: ExtractedRequirement) ->
         return {"pass": True, "reason": "No property type constraint"}
     if listing.property_type is None:
         return {"pass": False, "reason": "Listing has no property type data"}
-    passed = listing.property_type.lower().strip() == requirement.property_type.lower().strip()
+    passed = (
+        listing.property_type.lower().strip()
+        == requirement.property_type.lower().strip()
+    )
     verb = "matches" if passed else "does not match"
     return {
         "pass": passed,
@@ -100,9 +105,20 @@ def _run_quantitative_checks(
 # ── Semantic must-have filtering ──────────────────────────────────────────
 
 QUANTITATIVE_KEYWORDS = [
-    "bedroom", "bed", "bath", "bathroom", "budget", "price",
-    "sqft", "square feet", "square foot", "sq ft",
-    "property type", "house", "condo", "townhouse",
+    "bedroom",
+    "bed",
+    "bath",
+    "bathroom",
+    "budget",
+    "price",
+    "sqft",
+    "square feet",
+    "square foot",
+    "sq ft",
+    "property type",
+    "house",
+    "condo",
+    "townhouse",
 ]
 
 
@@ -114,7 +130,9 @@ def _is_quantitative_must_have(must_have: str) -> bool:
 
 def _get_semantic_must_haves(requirement: ExtractedRequirement) -> list[str]:
     """Filter must_haves_list to items needing LLM evaluation."""
-    return [mh for mh in requirement.must_haves_list if not _is_quantitative_must_have(mh)]
+    return [
+        mh for mh in requirement.must_haves_list if not _is_quantitative_must_have(mh)
+    ]
 
 
 # ── LLM semantic evaluation ──────────────────────────────────────────────
@@ -122,9 +140,8 @@ def _get_semantic_must_haves(requirement: ExtractedRequirement) -> list[str]:
 
 def _listings_to_dicts(listings: list[Listing]) -> list[dict]:
     """Convert Listing ORM objects to dicts for prompt building."""
-    result = []
-    for listing in listings:
-        result.append({
+    return [
+        {
             "id": listing.id,
             "address": listing.address,
             "price": listing.price,
@@ -136,8 +153,9 @@ def _listings_to_dicts(listings: list[Listing]) -> list[dict]:
             "neighborhood": listing.neighborhood,
             "year_built": listing.year_built,
             "days_on_market": listing.days_on_market,
-        })
-    return result
+        }
+        for listing in listings
+    ]
 
 
 def _parse_llm_response(raw_text: str) -> dict[str, Any]:
@@ -244,7 +262,10 @@ def _compute_scores(
             if nth_text in nth_scores:
                 nice_to_have_details[nth_text] = nth_scores[nth_text]
             else:
-                nice_to_have_details[nth_text] = {"score": 0.5, "reason": "Not evaluated"}
+                nice_to_have_details[nth_text] = {
+                    "score": 0.5,
+                    "reason": "Not evaluated",
+                }
     elif nice_to_haves:
         for nth_text in nice_to_haves:
             nice_to_have_details[nth_text] = {

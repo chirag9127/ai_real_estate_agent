@@ -1,21 +1,24 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.llm.base import LLMProvider
 from app.llm.factory import get_llm_provider
 from app.schemas.requirement import RequirementResponse, RequirementUpdate
 from app.services import extraction_service
 from app.utils.exceptions import ExtractionError, TranscriptNotFoundError
 
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.llm.base import LLMProvider
+
 router = APIRouter()
 
 
-@router.post(
-    "/transcripts/{transcript_id}/extract", response_model=RequirementResponse
-)
+@router.post("/transcripts/{transcript_id}/extract", response_model=RequirementResponse)
 async def extract_requirements(
     transcript_id: int,
     db: Session = Depends(get_db),
@@ -50,7 +53,9 @@ def get_requirement_by_transcript(
 ) -> RequirementResponse:
     requirement = extraction_service.get_requirement_by_transcript(db, transcript_id)
     if not requirement:
-        raise HTTPException(status_code=404, detail="No requirements found for this transcript")
+        raise HTTPException(
+            status_code=404, detail="No requirements found for this transcript"
+        )
     return RequirementResponse.model_validate(requirement)
 
 

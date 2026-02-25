@@ -1,6 +1,6 @@
 from datetime import datetime
-from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from app.models.transcript import Transcript
 
 
-class PipelineStage(str, Enum):
+class PipelineStage(StrEnum):
     INGESTION = "ingestion"
     EXTRACTION = "extraction"
     SEARCH = "search"
@@ -20,7 +20,7 @@ class PipelineStage(str, Enum):
     SEND = "send"
 
 
-class PipelineStatus(str, Enum):
+class PipelineStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -41,26 +41,24 @@ class PipelineRun(Base):
         String(20), default=PipelineStatus.PENDING.value
     )
 
-    ingestion_completed_at: Mapped[Optional[datetime]] = mapped_column(
+    ingestion_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    extraction_completed_at: Mapped[Optional[datetime]] = mapped_column(
+    extraction_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    search_completed_at: Mapped[Optional[datetime]] = mapped_column(
+    search_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    ranking_completed_at: Mapped[Optional[datetime]] = mapped_column(
+    ranking_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    review_completed_at: Mapped[Optional[datetime]] = mapped_column(
+    review_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    send_completed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True
-    )
+    send_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()

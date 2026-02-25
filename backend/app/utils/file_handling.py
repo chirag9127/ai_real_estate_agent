@@ -1,5 +1,6 @@
 import os
 
+import aiofiles
 from fastapi import UploadFile
 
 from app.config import settings
@@ -26,8 +27,8 @@ async def save_upload_file(file: UploadFile) -> str:
     file_path = os.path.join(settings.upload_dir, file.filename or "transcript.txt")
 
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    async with aiofiles.open(file_path, "wb") as f:
+        await f.write(content)
 
     await file.seek(0)
     return file_path

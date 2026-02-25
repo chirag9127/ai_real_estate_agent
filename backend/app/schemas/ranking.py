@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from app.schemas.listing import ListingResponse
+if TYPE_CHECKING:
+    from app.schemas.listing import ListingResponse
 
 
 class RankingResponse(BaseModel):

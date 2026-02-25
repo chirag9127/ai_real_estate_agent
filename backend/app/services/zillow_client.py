@@ -20,7 +20,6 @@ NOMINATIM_HEADERS = {"User-Agent": "AIRealEstateAgent/1.0"}
 
 class ZillowAPIError(Exception):
     """Raised when the Zillow API returns an error or is unreachable."""
-    pass
 
 
 def _location_to_zillow_slug(location: str) -> str:
@@ -34,8 +33,7 @@ def _location_to_zillow_slug(location: str) -> str:
     slug = re.sub(r"\s+", " ", slug).strip()
     slug = slug.replace(" ", "-")
     slug = re.sub(r"[^a-z0-9-]", "", slug)
-    slug = re.sub(r"-+", "-", slug).strip("-")
-    return slug
+    return re.sub(r"-+", "-", slug).strip("-")
 
 
 async def _geocode_location(
@@ -179,9 +177,7 @@ class ZillowClient:
 
             # Step 3: Call the API
             try:
-                response = await http.get(
-                    api_url, headers=self._headers, params=params
-                )
+                response = await http.get(api_url, headers=self._headers, params=params)
                 response.raise_for_status()
                 data = response.json()
             except httpx.HTTPStatusError as e:
