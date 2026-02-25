@@ -42,9 +42,10 @@ def _build_listing_html(rr: RankedResult) -> str:
 
     score_pct = round((rr.overall_score or 0) * 100)
 
-    zillow_link = ""
-    if listing.zillow_url:
-        zillow_link = f' &middot; <a href="{listing.zillow_url}" style="color:#ff5e25;">View on Zillow</a>'
+    source_link = ""
+    if listing.listing_url:
+        source_label = listing.source.title() if listing.source else "Listing"
+        source_link = f' &middot; <a href="{listing.listing_url}" style="color:#ff5e25;">View on {source_label}</a>'
 
     desc_html = ""
     if listing.description and len(listing.description) > 50:
@@ -59,7 +60,7 @@ def _build_listing_html(rr: RankedResult) -> str:
         {desc_html}
         <div style="margin-top:8px;font-size:13px;">
           <span style="color:#4f9664;font-weight:bold;">Match: {score_pct}%</span>
-          {zillow_link}
+          {source_link}
         </div>
       </td>
     </tr>"""

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class ListingResponse(BaseModel):
     id: int
     external_id: str | None = None
+    source: str | None = None
     address: str | None = None
     price: float | None = None
     bedrooms: int | None = None
@@ -17,6 +18,6 @@ class ListingResponse(BaseModel):
     image_url: str | None = None
     year_built: int | None = None
     days_on_market: int | None = None
-    zillow_url: str | None = None
+    listing_url: str | None = None
 
     model_config = {"from_attributes": True}

@@ -1,6 +1,7 @@
 export interface Listing {
   id: number;
   external_id: string | null;
+  source: string | null;
   address: string | null;
   price: number | null;
   bedrooms: number | null;
@@ -12,7 +13,7 @@ export interface Listing {
   image_url: string | null;
   year_built: number | null;
   days_on_market: number | null;
-  zillow_url: string | null;
+  listing_url: string | null;
 }
 
 export interface ScoreBreakdown {

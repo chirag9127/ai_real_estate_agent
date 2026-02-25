@@ -148,7 +148,7 @@ class TestMapZillowPropToListing:
 
     def test_zillow_url_relative(self):
         listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
-        assert listing.zillow_url.startswith("https://www.zillow.com/homedetails/")
+        assert listing.listing_url.startswith("https://www.zillow.com/homedetails/")
 
     def test_days_on_market(self):
         listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
