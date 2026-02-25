@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     rapidapi_key: str = ""
     rapidapi_zillow_host: str = "real-estate101.p.rapidapi.com"
 
+    # Twilio WhatsApp
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_whatsapp_number: str = ""  # e.g. whatsapp:+14155238886
+
     model_config = {"env_file": ".env"}
 
 

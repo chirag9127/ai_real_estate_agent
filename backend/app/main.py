@@ -18,6 +18,7 @@ from app.routers import (
     search,
     send,
     transcripts,
+    whatsapp,
 )
 
 
@@ -49,3 +50,4 @@ app.include_router(search.router, prefix=settings.api_prefix, tags=["search"])
 app.include_router(rankings.router, prefix=settings.api_prefix, tags=["rankings"])
 app.include_router(review.router, prefix=settings.api_prefix, tags=["review"])
 app.include_router(send.router, prefix=settings.api_prefix, tags=["send"])
+app.include_router(whatsapp.router, prefix=settings.api_prefix, tags=["whatsapp"])

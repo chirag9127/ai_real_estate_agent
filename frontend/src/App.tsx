@@ -9,6 +9,7 @@ import RankingsPage from './pages/RankingsPage';
 import ReviewPage from './pages/ReviewPage';
 import SendPage from './pages/SendPage';
 import PipelineDetailPage from './pages/PipelineDetailPage';
+import WhatsAppPage from './pages/WhatsAppPage';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="pipeline/:runId/rankings" element={<RankingsPage />} />
         <Route path="pipeline/:runId/review" element={<ReviewPage />} />
         <Route path="pipeline/:runId/send" element={<SendPage />} />
+        <Route path="whatsapp" element={<WhatsAppPage />} />
       </Route>
     </Routes>
   );
