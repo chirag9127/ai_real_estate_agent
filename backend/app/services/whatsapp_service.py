@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 from twilio.rest import Client as TwilioClient
@@ -85,16 +84,8 @@ def handle_incoming_message(
     db.commit()
     db.refresh(transcript)
 
-    # Create a pipeline run (ingestion complete)
-    pipeline_run = PipelineRun(
-        transcript_id=transcript.id,
-        current_stage=PipelineStage.EXTRACTION.value,
-        status=PipelineStatus.IN_PROGRESS.value,
-        ingestion_completed_at=datetime.now(timezone.utc),
-    )
-    db.add(pipeline_run)
-    db.commit()
-    db.refresh(pipeline_run)
+    # Create a pipeline run via the shared pipeline service
+    pipeline_run = pipeline_service.start_pipeline(db, transcript.id)
 
     _active_conversations[from_number] = pipeline_run.id
 
