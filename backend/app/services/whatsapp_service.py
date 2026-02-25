@@ -12,7 +12,6 @@ from twilio.rest import Client as TwilioClient
 from app.config import settings
 from app.database import SessionLocal
 from app.llm.factory import get_llm_provider
-from app.models.listing import Listing
 from app.models.pipeline_run import PipelineRun, PipelineStage, PipelineStatus
 from app.models.ranking import RankedResult
 from app.models.transcript import Transcript
