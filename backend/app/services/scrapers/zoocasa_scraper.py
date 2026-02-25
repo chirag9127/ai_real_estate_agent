@@ -7,45 +7,23 @@ This scraper uses their internal API endpoints to fetch property listings.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 import httpx
 
 from app.services.scrapers.base_scraper import BaseScraper, ScraperError
+from app.services.scrapers.utils import (
+    build_browser_headers,
+    parse_standard_listing,
+    slugify,
+)
 
 logger = logging.getLogger(__name__)
 
 # Zoocasa internal search API (Next.js API route)
 _ZOOCASA_API_URL = "https://www.zoocasa.com/api/search"
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.zoocasa.com/",
-}
-
-
-def _location_to_zoocasa_slug(location: str) -> str:
-    """Convert a location string to a Zoocasa-compatible slug.
-
-    Examples:
-        "Toronto, ON" -> "toronto-on"
-        "Vancouver, BC" -> "vancouver-bc"
-    """
-    slug = location.lower().strip()
-    slug = slug.replace(".", "")
-    slug = re.sub(r"[,]+", " ", slug)
-    slug = re.sub(r"\s+", " ", slug).strip()
-    slug = slug.replace(" ", "-")
-    slug = re.sub(r"[^a-z0-9-]", "", slug)
-    slug = re.sub(r"-+", "-", slug).strip("-")
-    return slug
+_HEADERS = build_browser_headers(referer="https://www.zoocasa.com/")
 
 
 class ZoocasaScraper(BaseScraper):
@@ -87,9 +65,8 @@ class ZoocasaScraper(BaseScraper):
             location, max_price, beds_min, baths_min,
         )
 
-        slug = _location_to_zoocasa_slug(location)
+        slug = slugify(location)
 
-        # Build query parameters for Zoocasa's search API
         params: dict[str, Any] = {
             "slug": slug,
             "saleType": "sale",
@@ -136,57 +113,10 @@ class ZoocasaScraper(BaseScraper):
             logger.warning("Zoocasa returned no results for '%s'", location)
             return []
 
-        results: list[dict[str, Any]] = []
-        for prop in raw_listings:
-            listing_id = prop.get("mlsNumber") or prop.get("id", "")
-            address = prop.get("address") or prop.get("fullAddress", "")
-            if isinstance(address, dict):
-                address_parts = [
-                    address.get("street", ""),
-                    address.get("city", ""),
-                    address.get("province", ""),
-                    address.get("postalCode", ""),
-                ]
-                full_address = ", ".join(p for p in address_parts if p)
-                neighborhood = address.get("city", "")
-            else:
-                full_address = str(address) if address else ""
-                neighborhood = prop.get("city", "")
-
-            # Build listing URL
-            detail_slug = prop.get("slug") or prop.get("detailUrl", "")
-            if detail_slug and not detail_slug.startswith("http"):
-                listing_url = f"{self._base_url}/{detail_slug.lstrip('/')}"
-            elif detail_slug:
-                listing_url = detail_slug
-            else:
-                listing_url = ""
-
-            # Parse price
-            price = prop.get("price") or prop.get("listPrice")
-            if isinstance(price, str):
-                try:
-                    price = float(price.replace("$", "").replace(",", "").strip())
-                except (ValueError, AttributeError):
-                    price = None
-
-            results.append({
-                "id": str(listing_id),
-                "source": self.SOURCE_NAME,
-                "address": full_address,
-                "price": price,
-                "bedrooms": prop.get("bedrooms") or prop.get("beds"),
-                "bathrooms": prop.get("bathrooms") or prop.get("baths"),
-                "sqft": prop.get("sqft") or prop.get("squareFeet"),
-                "property_type": prop.get("propertyType") or prop.get("type", ""),
-                "description": prop.get("description", ""),
-                "image_url": prop.get("imageUrl") or prop.get("photo", ""),
-                "listing_url": listing_url,
-                "latitude": prop.get("latitude") or prop.get("lat"),
-                "longitude": prop.get("longitude") or prop.get("lng"),
-                "neighborhood": neighborhood,
-                "days_on_market": prop.get("daysOnMarket"),
-            })
+        results = [
+            parse_standard_listing(prop, self.SOURCE_NAME, self._base_url)
+            for prop in raw_listings
+        ]
 
         logger.info(
             "Zoocasa returned %d results for '%s'",
