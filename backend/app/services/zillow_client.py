@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import re
+from collections.abc import AsyncIterator
+from types import TracebackType
 from typing import Any
 from urllib.parse import quote
 
@@ -16,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_HEADERS = {"User-Agent": "AIRealEstateAgent/1.0"}
+
+# Default maximum number of concurrent API requests
+DEFAULT_MAX_CONCURRENCY = 5
 
 
 class ZillowAPIError(Exception):
@@ -120,18 +127,63 @@ def build_zillow_search_url(
 
 
 class ZillowClient:
-    """HTTP client for Zillow property search via RapidAPI (real-estate101)."""
+    """HTTP client for Zillow property search via RapidAPI (real-estate101).
 
-    def __init__(self, api_key: str | None = None, host: str | None = None) -> None:
+    Supports use as an async context manager to share a single
+    ``httpx.AsyncClient`` across multiple concurrent searches::
+
+        async with ZillowClient() as client:
+            results = await asyncio.gather(
+                client.search_by_url("New York, NY"),
+                client.search_by_url("Chicago, IL"),
+            )
+
+    Can also be used without the context manager for backward compatibility
+    (a fresh ``httpx.AsyncClient`` is created per request in that case).
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        host: str | None = None,
+        max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
+    ) -> None:
         key = api_key or settings.rapidapi_key
         if not key:
             raise ZillowAPIError("RAPIDAPI_KEY is not configured")
+        if max_concurrency < 1:
+            raise ValueError("max_concurrency must be >= 1")
         self._host = host or settings.rapidapi_zillow_host
         self._headers = {
             "x-rapidapi-key": key,
             "x-rapidapi-host": self._host,
         }
         self._base_url = f"https://{self._host}"
+        self._semaphore = asyncio.Semaphore(max_concurrency)
+        # Serialize Nominatim geocode calls to respect its 1 req/s policy
+        self._geocode_lock = asyncio.Lock()
+        # Shared HTTP client — set when used as async context manager
+        self._shared_http: httpx.AsyncClient | None = None
+
+    # -- async context manager -------------------------------------------------
+
+    async def __aenter__(self) -> ZillowClient:
+        if self._shared_http is not None:
+            raise RuntimeError("ZillowClient context manager is not reentrant")
+        self._shared_http = httpx.AsyncClient(timeout=30.0)
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        if self._shared_http is not None:
+            await self._shared_http.aclose()
+            self._shared_http = None
+
+    # -- public API ------------------------------------------------------------
 
     async def search_by_url(
         self,
@@ -150,52 +202,87 @@ class ZillowClient:
         3. Calls the /api/search/byurl endpoint
 
         Returns list of property dicts from the "results" key.
-        """
-        async with httpx.AsyncClient(timeout=30.0) as http:
-            # Step 1: Geocode to get map bounds (required by the API)
-            map_bounds = await _geocode_location(location, http)
-            if not map_bounds:
-                logger.error(
-                    "Could not geocode '%s' — API requires mapBounds", location
-                )
-                return []
 
-            # Step 2: Build the Zillow search URL
-            zillow_url = build_zillow_search_url(
-                location,
-                map_bounds=map_bounds,
-                max_price=max_price,
-                beds_min=beds_min,
-                baths_min=baths_min,
-                sqft_min=sqft_min,
+        When the client is used as an async context manager the shared
+        ``httpx.AsyncClient`` is reused and a semaphore limits concurrency.
+        Otherwise a one-off client is created for backward compatibility.
+        """
+        async with self._semaphore, self._http_client() as http:
+            return await self._do_search(
+                http, location,
+                max_price=max_price, beds_min=beds_min,
+                baths_min=baths_min, sqft_min=sqft_min, page=page,
             )
 
-            api_url = f"{self._base_url}/api/search/byurl"
-            params: dict[str, str] = {"url": zillow_url}
-            if page > 1:
-                params["page"] = str(page)
+    # -- internals -------------------------------------------------------------
 
-            logger.info("Zillow API request: %s (location=%s)", api_url, location)
+    @contextlib.asynccontextmanager
+    async def _http_client(self) -> AsyncIterator[httpx.AsyncClient]:
+        """Yield the shared HTTP client, or a temporary one-off client."""
+        if self._shared_http is not None:
+            yield self._shared_http
+        else:
+            async with httpx.AsyncClient(timeout=30.0) as http:
+                yield http
 
-            # Step 3: Call the API
-            try:
-                response = await http.get(
-                    api_url, headers=self._headers, params=params
-                )
-                response.raise_for_status()
-                data = response.json()
-            except httpx.HTTPStatusError as e:
-                logger.error(
-                    "Zillow API HTTP error: %s — body: %s",
-                    e,
-                    e.response.text[:500],
-                )
-                raise ZillowAPIError(
-                    f"Zillow API returned {e.response.status_code}"
-                ) from e
-            except httpx.RequestError as e:
-                logger.error("Zillow API request error: %s", e)
-                raise ZillowAPIError(f"Zillow API request failed: {e}") from e
+    async def _do_search(
+        self,
+        http: httpx.AsyncClient,
+        location: str,
+        *,
+        max_price: int | None = None,
+        beds_min: int | None = None,
+        baths_min: int | None = None,
+        sqft_min: int | None = None,
+        page: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Execute the geocode + Zillow API search using the given HTTP client."""
+        # Step 1: Geocode to get map bounds (required by the API).
+        # Nominatim enforces a 1 req/s policy, so we serialize geocode calls.
+        async with self._geocode_lock:
+            map_bounds = await _geocode_location(location, http)
+        if not map_bounds:
+            logger.error(
+                "Could not geocode '%s' — API requires mapBounds", location
+            )
+            return []
+
+        # Step 2: Build the Zillow search URL
+        zillow_url = build_zillow_search_url(
+            location,
+            map_bounds=map_bounds,
+            max_price=max_price,
+            beds_min=beds_min,
+            baths_min=baths_min,
+            sqft_min=sqft_min,
+        )
+
+        api_url = f"{self._base_url}/api/search/byurl"
+        params: dict[str, str] = {"url": zillow_url}
+        if page > 1:
+            params["page"] = str(page)
+
+        logger.info("Zillow API request: %s (location=%s)", api_url, location)
+
+        # Step 3: Call the API
+        try:
+            response = await http.get(
+                api_url, headers=self._headers, params=params
+            )
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "Zillow API HTTP error: %s — body: %s",
+                e,
+                e.response.text[:500],
+            )
+            raise ZillowAPIError(
+                f"Zillow API returned {e.response.status_code}"
+            ) from e
+        except httpx.RequestError as e:
+            logger.error("Zillow API request error: %s", e)
+            raise ZillowAPIError(f"Zillow API request failed: {e}") from e
 
         results = data.get("results", [])
         total = data.get("totalCount", "?")
