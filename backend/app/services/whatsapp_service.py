@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -9,10 +10,14 @@ from sqlalchemy.orm import Session
 from twilio.rest import Client as TwilioClient
 
 from app.config import settings
+from app.database import SessionLocal
+from app.llm.factory import get_llm_provider
 from app.models.listing import Listing
 from app.models.pipeline_run import PipelineRun, PipelineStage, PipelineStatus
 from app.models.ranking import RankedResult
+from app.models.requirement import ExtractedRequirement
 from app.models.transcript import Transcript
+from app.services import extraction_service, ranking_service, search_service
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +106,150 @@ def handle_incoming_message(
         f"Pipeline #{pipeline_run.id} is now running. "
         "I'll send you the results once they're ready!"
     )
+
+
+async def run_pipeline_async(pipeline_run_id: int, from_number: str) -> None:
+    """Execute the full pipeline (extract -> search -> rank) in the background.
+
+    Uses its own DB session so it is independent of the request lifecycle.
+    On completion (or failure) sends a WhatsApp message back to the user.
+    """
+    db = SessionLocal()
+    try:
+        pipeline_run = (
+            db.query(PipelineRun).filter(PipelineRun.id == pipeline_run_id).first()
+        )
+        if not pipeline_run:
+            logger.error("Pipeline run %d not found for background execution", pipeline_run_id)
+            return
+
+        llm = get_llm_provider()
+
+        # --- Extraction ---
+        try:
+            await extraction_service.extract_requirements(
+                db, pipeline_run.transcript_id, llm
+            )
+            pipeline_run.extraction_completed_at = datetime.now(timezone.utc)
+            pipeline_run.current_stage = PipelineStage.SEARCH.value
+            db.commit()
+        except Exception as exc:
+            logger.exception("WhatsApp pipeline failed at extraction")
+            pipeline_run.status = PipelineStatus.FAILED.value
+            pipeline_run.error_message = str(exc)
+            db.commit()
+            send_whatsapp_message(
+                from_number,
+                f"Sorry, I couldn't extract requirements from your message. "
+                f"Error: {exc}. Please try again with more detail.",
+            )
+            return
+
+        # --- Search ---
+        requirement = (
+            db.query(ExtractedRequirement)
+            .filter(ExtractedRequirement.transcript_id == pipeline_run.transcript_id)
+            .first()
+        )
+        if not requirement:
+            pipeline_run.status = PipelineStatus.FAILED.value
+            pipeline_run.error_message = "No extracted requirement found"
+            db.commit()
+            send_whatsapp_message(
+                from_number,
+                "Sorry, I couldn't find any requirements in your message. Please try again.",
+            )
+            return
+
+        try:
+            await search_service.search_listings(
+                db, requirement.id, pipeline_run_id=pipeline_run.id
+            )
+            pipeline_run.search_completed_at = datetime.now(timezone.utc)
+            pipeline_run.current_stage = PipelineStage.RANKING.value
+            db.commit()
+        except Exception as exc:
+            logger.exception("WhatsApp pipeline failed at search")
+            pipeline_run.status = PipelineStatus.FAILED.value
+            pipeline_run.error_message = str(exc)
+            db.commit()
+            send_whatsapp_message(
+                from_number,
+                f"Sorry, the property search failed. Error: {exc}. Please try again.",
+            )
+            return
+
+        # --- Ranking ---
+        listings = (
+            db.query(Listing)
+            .filter(Listing.pipeline_run_id == pipeline_run.id)
+            .all()
+        )
+        if not listings:
+            pipeline_run.status = PipelineStatus.FAILED.value
+            pipeline_run.error_message = "No listings found to rank"
+            db.commit()
+            send_whatsapp_message(
+                from_number,
+                "I searched but couldn't find any matching properties. "
+                "Try sending a new message with different criteria.",
+            )
+            return
+
+        try:
+            await ranking_service.rank_results(
+                db=db,
+                pipeline_run_id=pipeline_run.id,
+                requirement=requirement,
+                listings=listings,
+                llm=llm,
+            )
+            pipeline_run.ranking_completed_at = datetime.now(timezone.utc)
+            pipeline_run.current_stage = PipelineStage.REVIEW.value
+            pipeline_run.status = PipelineStatus.COMPLETED.value
+            db.commit()
+        except Exception as exc:
+            logger.exception("WhatsApp pipeline failed at ranking")
+            pipeline_run.status = PipelineStatus.FAILED.value
+            pipeline_run.error_message = str(exc)
+            db.commit()
+            send_whatsapp_message(
+                from_number,
+                f"Sorry, ranking failed. Error: {exc}. Please try again.",
+            )
+            return
+
+        # --- Send results back via WhatsApp ---
+        send_pipeline_results(db, pipeline_run.id, from_number)
+
+        # Clean up the conversation so the user can start a new search
+        clear_conversation(from_number)
+
+        logger.info(
+            "WhatsApp pipeline %d completed successfully for %s",
+            pipeline_run.id,
+            from_number,
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error in WhatsApp background pipeline %d", pipeline_run_id
+        )
+        send_whatsapp_message(
+            from_number,
+            "An unexpected error occurred while processing your request. Please try again.",
+        )
+    finally:
+        db.close()
+
+
+def schedule_pipeline(pipeline_run_id: int, from_number: str) -> None:
+    """Schedule the async pipeline to run in the current event loop.
+
+    Called from the webhook handler after the TwiML response is prepared.
+    """
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_pipeline_async(pipeline_run_id, from_number))
 
 
 def get_pipeline_status_message(db: Session, from_number: str) -> str | None:

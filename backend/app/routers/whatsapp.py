@@ -81,12 +81,16 @@ async def whatsapp_webhook(
         body[:80] if body else "",
     )
 
-    reply_text = whatsapp_service.handle_incoming_message(
+    reply_text, pipeline_run_id = whatsapp_service.handle_incoming_message(
         db,
         from_number=from_number,
         body=body,
         profile_name=profile_name,
     )
+
+    # If a new pipeline was created, schedule it to run in the background
+    if pipeline_run_id is not None:
+        whatsapp_service.schedule_pipeline(pipeline_run_id, from_number)
 
     # Return TwiML response so Twilio sends the reply back to the user
     twiml = MessagingResponse()
