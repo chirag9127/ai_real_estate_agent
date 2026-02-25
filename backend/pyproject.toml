@@ -5,26 +5,8 @@ description = "AI Real Estate Agent Backend"
 requires-python = ">=3.12"
 
 [tool.ruff]
-# Target Python 3.12
 target-version = "py312"
-
-# Same as Black
 line-length = 88
-indent-width = 4
-
-# Exclude common non-source directories
-exclude = [
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".venv",
-    "__pypackages__",
-    "__pycache__",
-    "build",
-    "dist",
-    "venv",
-]
 
 [tool.ruff.lint]
 select = [
@@ -38,14 +20,13 @@ select = [
     "A",      # flake8-builtins - shadowing builtins
     "C4",     # flake8-comprehensions
     "SIM",    # flake8-simplify
-    "TCH",    # flake8-type-checking
+    "TC",     # flake8-type-checking
     "RUF",    # Ruff-specific rules
     "PIE",    # flake8-pie - misc lints
     "PT",     # flake8-pytest-style
     "RET",    # flake8-return
     "T20",    # flake8-print - no print statements
     "ARG",    # flake8-unused-arguments
-    "FBT",    # flake8-boolean-trap
     "DTZ",    # flake8-datetimez
     "LOG",    # flake8-logging
     "G",      # flake8-logging-format
@@ -61,27 +42,19 @@ select = [
 ]
 
 ignore = [
-    "E501",    # Line too long - handled by formatter
+    "E501",    # Line too long - handled by formatter; string literals may exceed limit
     "COM812",  # Missing trailing comma - conflicts with formatter
     "ISC001",  # Implicit string concat on single line - conflicts with formatter
-    "S101",    # Use of assert - acceptable in tests
     "B008",    # Do not perform function calls in argument defaults - needed for FastAPI Depends()
-    "FBT001",  # Boolean positional arg in function definition - too strict for this codebase
-    "FBT002",  # Boolean default value in function definition - too strict for this codebase
     "ARG001",  # Unused function argument - common in FastAPI dependency injection
     "RUF012",  # Mutable class attributes should be annotated with ClassVar
 ]
 
-# Allow all rules to be auto-fixed
 fixable = ["ALL"]
-unfixable = []
-
-# Allow unused variables when underscore-prefixed
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.per-file-ignores]
-# Tests can use assert, magic values, broader exceptions
-"tests/**/*.py" = ["S101", "PLR2004", "BLE001", "ARG", "T20"]
+# Tests can use assert, broader exceptions, unused args, and print statements
+"tests/**/*.py" = ["S101", "BLE001", "ARG", "T20"]
 # Init files can have unused imports (re-exports)
 "__init__.py" = ["F401"]
 # SQLAlchemy models need runtime type imports for Mapped[] column inference
@@ -94,13 +67,7 @@ known-first-party = ["app"]
 fixture-parentheses = false
 
 [tool.ruff.format]
-# Use double quotes (consistent with existing codebase)
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
 docstring-code-format = true
-docstring-code-line-length = "dynamic"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
+from app.config import settings
+
 if TYPE_CHECKING:
     from collections.abc import Generator
-
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
