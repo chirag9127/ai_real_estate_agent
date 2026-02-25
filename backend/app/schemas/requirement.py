@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, model_validator
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 class RequirementResponse(BaseModel):
