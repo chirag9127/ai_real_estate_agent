@@ -15,9 +15,8 @@ from app.llm.factory import get_llm_provider
 from app.models.listing import Listing
 from app.models.pipeline_run import PipelineRun, PipelineStage, PipelineStatus
 from app.models.ranking import RankedResult
-from app.models.requirement import ExtractedRequirement
 from app.models.transcript import Transcript
-from app.services import extraction_service, ranking_service, search_service
+from app.services import pipeline_service
 
 logger = logging.getLogger(__name__)
 
@@ -121,122 +120,40 @@ async def run_pipeline_async(pipeline_run_id: int, from_number: str) -> None:
     """Execute the full pipeline (extract -> search -> rank) in the background.
 
     Uses its own DB session so it is independent of the request lifecycle.
-    On completion (or failure) sends a WhatsApp message back to the user.
+    Delegates to the existing ``pipeline_service`` step functions to avoid
+    duplicating pipeline orchestration logic.  On completion (or failure)
+    sends a WhatsApp message back to the user.
     """
     db = SessionLocal()
     try:
-        pipeline_run = (
-            db.query(PipelineRun).filter(PipelineRun.id == pipeline_run_id).first()
-        )
-        if not pipeline_run:
-            logger.error("Pipeline run %d not found for background execution", pipeline_run_id)
-            return
-
         llm = get_llm_provider()
 
-        # --- Extraction ---
-        try:
-            await extraction_service.extract_requirements(
-                db, pipeline_run.transcript_id, llm
-            )
-            pipeline_run.extraction_completed_at = datetime.now(timezone.utc)
-            pipeline_run.current_stage = PipelineStage.SEARCH.value
-            db.commit()
-        except Exception as exc:
-            logger.exception("WhatsApp pipeline failed at extraction")
-            pipeline_run.status = PipelineStatus.FAILED.value
-            pipeline_run.error_message = str(exc)
-            db.commit()
-            send_whatsapp_message(
-                from_number,
-                f"Sorry, I couldn't extract requirements from your message. "
-                f"Error: {exc}. Please try again with more detail.",
-            )
-            return
+        # Each step returns the updated PipelineRun.  If the status flips to
+        # FAILED the step already logged the error and persisted it.
+        steps = [
+            ("extraction", lambda: pipeline_service.run_extraction_step(db, pipeline_run_id, llm)),
+            ("search", lambda: pipeline_service.run_search_step(db, pipeline_run_id)),
+            ("ranking", lambda: pipeline_service.run_ranking_step(db, pipeline_run_id, llm)),
+        ]
 
-        # --- Search ---
-        requirement = (
-            db.query(ExtractedRequirement)
-            .filter(ExtractedRequirement.transcript_id == pipeline_run.transcript_id)
-            .first()
-        )
-        if not requirement:
-            pipeline_run.status = PipelineStatus.FAILED.value
-            pipeline_run.error_message = "No extracted requirement found"
-            db.commit()
-            send_whatsapp_message(
-                from_number,
-                "Sorry, I couldn't find any requirements in your message. Please try again.",
-            )
-            return
-
-        try:
-            await search_service.search_listings(
-                db, requirement.id, pipeline_run_id=pipeline_run.id
-            )
-            pipeline_run.search_completed_at = datetime.now(timezone.utc)
-            pipeline_run.current_stage = PipelineStage.RANKING.value
-            db.commit()
-        except Exception as exc:
-            logger.exception("WhatsApp pipeline failed at search")
-            pipeline_run.status = PipelineStatus.FAILED.value
-            pipeline_run.error_message = str(exc)
-            db.commit()
-            send_whatsapp_message(
-                from_number,
-                f"Sorry, the property search failed. Error: {exc}. Please try again.",
-            )
-            return
-
-        # --- Ranking ---
-        listings = (
-            db.query(Listing)
-            .filter(Listing.pipeline_run_id == pipeline_run.id)
-            .all()
-        )
-        if not listings:
-            pipeline_run.status = PipelineStatus.FAILED.value
-            pipeline_run.error_message = "No listings found to rank"
-            db.commit()
-            send_whatsapp_message(
-                from_number,
-                "I searched but couldn't find any matching properties. "
-                "Try sending a new message with different criteria.",
-            )
-            return
-
-        try:
-            await ranking_service.rank_results(
-                db=db,
-                pipeline_run_id=pipeline_run.id,
-                requirement=requirement,
-                listings=listings,
-                llm=llm,
-            )
-            pipeline_run.ranking_completed_at = datetime.now(timezone.utc)
-            pipeline_run.current_stage = PipelineStage.REVIEW.value
-            pipeline_run.status = PipelineStatus.COMPLETED.value
-            db.commit()
-        except Exception as exc:
-            logger.exception("WhatsApp pipeline failed at ranking")
-            pipeline_run.status = PipelineStatus.FAILED.value
-            pipeline_run.error_message = str(exc)
-            db.commit()
-            send_whatsapp_message(
-                from_number,
-                f"Sorry, ranking failed. Error: {exc}. Please try again.",
-            )
-            return
+        for step_name, step_fn in steps:
+            run = await step_fn()
+            if run.status == PipelineStatus.FAILED.value:
+                send_whatsapp_message(
+                    from_number,
+                    f"Sorry, the pipeline failed at the {step_name} stage: "
+                    f"{run.error_message or 'unknown error'}. Please try again.",
+                )
+                clear_conversation(from_number)
+                return
 
         # --- Send results back via WhatsApp ---
-        send_pipeline_results(db, pipeline_run.id, from_number)
-
-        # Clean up the conversation so the user can start a new search
+        send_pipeline_results(db, pipeline_run_id, from_number)
         clear_conversation(from_number)
 
         logger.info(
             "WhatsApp pipeline %d completed successfully for %s",
-            pipeline_run.id,
+            pipeline_run_id,
             from_number,
         )
 
@@ -248,6 +165,7 @@ async def run_pipeline_async(pipeline_run_id: int, from_number: str) -> None:
             from_number,
             "An unexpected error occurred while processing your request. Please try again.",
         )
+        clear_conversation(from_number)
     finally:
         db.close()
 
@@ -327,9 +245,9 @@ def send_pipeline_results(db: Session, pipeline_run_id: int, to_number: str) -> 
 
     lines = [f"Here are your top {len(rankings)} property matches:\n"]
     for rr in rankings:
-        listing: Listing = rr.listing
+        listing = rr.listing
         price = f"${listing.price:,.0f}" if listing.price else "Price N/A"
-        details: list[str] = []
+        details = []
         if listing.bedrooms is not None:
             details.append(f"{listing.bedrooms}bd")
         if listing.bathrooms is not None:

@@ -47,7 +47,6 @@ export default function Sidebar() {
         <NavItem to="/" label="Dashboard" end />
         <NavItem to="/upload" label="Upload" />
         <NavItem to="/whatsapp" label="WhatsApp" />
-        <NavItem to="/whatsapp" label="WhatsApp" end />
       </nav>
 
       <div className="mt-auto p-6 border-t border-ink text-[10px] uppercase flex justify-between">

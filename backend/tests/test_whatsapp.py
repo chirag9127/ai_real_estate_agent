@@ -1,304 +1,376 @@
-"""Tests for WhatsApp integration service and webhook."""
+"""Unit tests for the WhatsApp integration (service + webhook router)."""
 
-from datetime import datetime, timezone
-from unittest import mock
+from __future__ import annotations
+
+import os
+import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy.orm import Session
+from fastapi.testclient import TestClient
 
-from app.models.listing import Listing
-from app.models.pipeline_run import PipelineRun, PipelineStage, PipelineStatus
-from app.models.ranking import RankedResult
-from app.models.requirement import ExtractedRequirement
-from app.models.transcript import Transcript
-from app.services import whatsapp_service
+# Ensure the backend package is importable
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from app.database import Base, SessionLocal, engine, get_db  # noqa: E402
+from app.main import app  # noqa: E402
+from app.models.pipeline_run import PipelineRun, PipelineStage, PipelineStatus  # noqa: E402
+from app.models.transcript import Transcript  # noqa: E402
+from app.services import whatsapp_service  # noqa: E402
 
 
-# ============================================================================
+# ---------------------------------------------------------------------------
 # Fixtures
-# ============================================================================
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _setup_db():
+    """Create tables before each test and drop after."""
+    import app.models  # noqa: F401 -- register all models
+    Base.metadata.create_all(bind=engine)
+    yield
+    Base.metadata.drop_all(bind=engine)
 
 
-@pytest.fixture
-def db_session(db: Session) -> Session:
-    """Provide a database session for tests."""
-    return db
+@pytest.fixture()
+def db():
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
-# ============================================================================
-# Tests: Conversation tracking
-# ============================================================================
-
-
-def test_get_active_conversations_empty() -> None:
-    """Initially, no active conversations."""
-    # Clear any prior state
+@pytest.fixture(autouse=True)
+def _clear_conversations():
+    """Reset in-memory conversation state between tests."""
     whatsapp_service._active_conversations.clear()
-    assert whatsapp_service.get_active_conversations() == {}
-
-
-def test_clear_conversation() -> None:
-    """clear_conversation removes a sender from active map."""
-    whatsapp_service._active_conversations.clear()
-    whatsapp_service._active_conversations["whatsapp:+12345"] = 123
-
-    assert whatsapp_service.clear_conversation("whatsapp:+12345") is True
-    assert whatsapp_service.get_active_conversations() == {}
-
-    # Clearing a non-existent sender returns False
-    assert whatsapp_service.clear_conversation("whatsapp:+99999") is False
-
-
-# ============================================================================
-# Tests: handle_incoming_message
-# ============================================================================
-
-
-def test_handle_incoming_message_creates_transcript_and_pipeline(db_session: Session) -> None:
-    """Incoming message creates a transcript and pipeline run."""
-    whatsapp_service._active_conversations.clear()
-    from_number = "whatsapp:+14155238886"
-    body = "Looking for a 2-bedroom apartment in San Francisco"
-
-    reply, pipeline_run_id = whatsapp_service.handle_incoming_message(
-        db_session,
-        from_number=from_number,
-        body=body,
-        profile_name="Alice",
-    )
-
-    # Verify reply message
-    assert "Alice" in reply
-    assert "property" in reply.lower() and "search" in reply.lower()
-    assert pipeline_run_id is not None
-
-    # Verify transcript was created
-    transcript = db_session.query(Transcript).filter_by(raw_text=body).first()
-    assert transcript is not None
-    assert transcript.upload_method == "whatsapp"
-    assert transcript.status == "uploaded"
-
-    # Verify pipeline run was created
-    pipeline_run = db_session.query(PipelineRun).filter_by(
-        transcript_id=transcript.id
-    ).first()
-    assert pipeline_run is not None
-    assert pipeline_run.id == pipeline_run_id
-    assert pipeline_run.current_stage == PipelineStage.EXTRACTION.value
-    assert pipeline_run.status == PipelineStatus.IN_PROGRESS.value
-    assert pipeline_run.ingestion_completed_at is not None
-
-    # Verify conversation was tracked
-    assert from_number in whatsapp_service.get_active_conversations()
-    assert whatsapp_service.get_active_conversations()[from_number] == pipeline_run.id
-
-
-def test_handle_incoming_message_empty_body(db_session: Session) -> None:
-    """Empty or whitespace-only message is rejected."""
+    yield
     whatsapp_service._active_conversations.clear()
 
-    reply, pipeline_run_id = whatsapp_service.handle_incoming_message(
-        db_session,
-        from_number="whatsapp:+12345",
-        body="   ",
-    )
 
-    assert "Please send a message" in reply
-    assert pipeline_run_id is None
+@pytest.fixture()
+def client(db):
+    """FastAPI test client with overridden DB dependency."""
 
+    def _override_get_db():
+        try:
+            yield db
+        finally:
+            pass
 
-def test_handle_incoming_message_returns_status_when_pipeline_in_progress(
-    db_session: Session,
-) -> None:
-    """While a pipeline is in progress, reply with status instead of creating new one."""
-    whatsapp_service._active_conversations.clear()
-    from_number = "whatsapp:+14155238886"
-
-    # Create a transcript and pipeline run
-    transcript = Transcript(raw_text="First request", upload_method="whatsapp")
-    db_session.add(transcript)
-    db_session.commit()
-
-    pipeline_run = PipelineRun(
-        transcript_id=transcript.id,
-        current_stage=PipelineStage.EXTRACTION.value,
-        status=PipelineStatus.IN_PROGRESS.value,
-        ingestion_completed_at=datetime.now(timezone.utc),
-    )
-    db_session.add(pipeline_run)
-    db_session.commit()
-
-    whatsapp_service._active_conversations[from_number] = pipeline_run.id
-
-    # Send a second message
-    reply, new_pipeline_run_id = whatsapp_service.handle_incoming_message(
-        db_session,
-        from_number=from_number,
-        body="Another request",
-    )
-
-    # Should get status reply, not create a new pipeline
-    assert "still in progress" in reply.lower()
-    assert "stage" in reply.lower()
-    assert new_pipeline_run_id is None  # No new pipeline should be created
+    app.dependency_overrides[get_db] = _override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
 
 
-# ============================================================================
-# Tests: get_pipeline_status_message
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Service-level tests
+# ---------------------------------------------------------------------------
 
 
-def test_get_pipeline_status_message_returns_status(db_session: Session) -> None:
-    """get_pipeline_status_message returns status for active pipeline."""
-    whatsapp_service._active_conversations.clear()
-    from_number = "whatsapp:+14155238886"
+class TestHandleIncomingMessage:
+    """Tests for whatsapp_service.handle_incoming_message."""
 
-    transcript = Transcript(raw_text="Test", upload_method="whatsapp")
-    db_session.add(transcript)
-    db_session.commit()
+    def test_empty_body_returns_prompt(self, db):
+        reply, run_id = whatsapp_service.handle_incoming_message(
+            db, from_number="whatsapp:+1111111111", body="   "
+        )
+        assert "describing what kind of property" in reply
+        assert run_id is None
 
-    pipeline_run = PipelineRun(
-        transcript_id=transcript.id,
-        current_stage=PipelineStage.RANKING.value,
-        status=PipelineStatus.IN_PROGRESS.value,
-    )
-    db_session.add(pipeline_run)
-    db_session.commit()
+    def test_first_message_creates_transcript_and_pipeline(self, db):
+        reply, run_id = whatsapp_service.handle_incoming_message(
+            db,
+            from_number="whatsapp:+2222222222",
+            body="Looking for a 3-bed house in Austin under 500k",
+            profile_name="Alice",
+        )
+        assert "Thanks Alice" in reply
+        assert run_id is not None
 
-    whatsapp_service._active_conversations[from_number] = pipeline_run.id
+        # Verify transcript was created
+        transcript = db.query(Transcript).filter(Transcript.upload_method == "whatsapp").first()
+        assert transcript is not None
+        assert "3-bed house" in transcript.raw_text
 
-    msg = whatsapp_service.get_pipeline_status_message(db_session, from_number)
-    assert msg is not None
-    assert str(pipeline_run.id) in msg
-    assert PipelineStage.RANKING.value in msg
+        # Verify pipeline run was created
+        pipeline_run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+        assert pipeline_run is not None
+        assert pipeline_run.status == PipelineStatus.IN_PROGRESS.value
+        assert pipeline_run.current_stage == PipelineStage.EXTRACTION.value
+        assert pipeline_run.transcript_id == transcript.id
+
+    def test_duplicate_message_while_pipeline_running(self, db):
+        # First message
+        _, run_id = whatsapp_service.handle_incoming_message(
+            db,
+            from_number="whatsapp:+3333333333",
+            body="I want a condo in Miami",
+        )
+        assert run_id is not None
+
+        # Second message from same number while pipeline is in progress
+        reply, run_id2 = whatsapp_service.handle_incoming_message(
+            db,
+            from_number="whatsapp:+3333333333",
+            body="Actually I want a house",
+        )
+        assert "still in progress" in reply
+        assert run_id2 is None
+
+    def test_new_message_after_pipeline_completed(self, db):
+        # First message
+        _, run_id = whatsapp_service.handle_incoming_message(
+            db,
+            from_number="whatsapp:+4444444444",
+            body="Looking for a house in Denver",
+        )
+        # Mark pipeline as completed
+        pipeline_run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+        pipeline_run.status = PipelineStatus.COMPLETED.value
+        db.commit()
+
+        # New message should create a new pipeline
+        reply, run_id2 = whatsapp_service.handle_incoming_message(
+            db,
+            from_number="whatsapp:+4444444444",
+            body="Now looking for a condo in Seattle",
+        )
+        assert "Thanks" in reply
+        assert run_id2 is not None
+        assert run_id2 != run_id
+
+    def test_new_message_after_pipeline_failed(self, db):
+        # First message
+        _, run_id = whatsapp_service.handle_incoming_message(
+            db,
+            from_number="whatsapp:+5555555555",
+            body="Looking for a house",
+        )
+        # Mark pipeline as failed
+        pipeline_run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+        pipeline_run.status = PipelineStatus.FAILED.value
+        db.commit()
+
+        # New message should create a new pipeline
+        reply, run_id2 = whatsapp_service.handle_incoming_message(
+            db,
+            from_number="whatsapp:+5555555555",
+            body="Looking for a house in Portland",
+        )
+        assert run_id2 is not None
+        assert run_id2 != run_id
+
+    def test_profile_name_omitted(self, db):
+        reply, _ = whatsapp_service.handle_incoming_message(
+            db,
+            from_number="whatsapp:+6666666666",
+            body="3 bed house in Chicago",
+        )
+        assert "Thanks!" in reply
 
 
-def test_get_pipeline_status_message_returns_none_for_inactive(db_session: Session) -> None:
-    """get_pipeline_status_message returns None when sender has no active pipeline."""
-    whatsapp_service._active_conversations.clear()
+class TestConversationTracking:
+    def test_get_active_conversations(self, db):
+        whatsapp_service.handle_incoming_message(
+            db, from_number="whatsapp:+1000000001", body="house in LA"
+        )
+        convos = whatsapp_service.get_active_conversations()
+        assert "whatsapp:+1000000001" in convos
 
-    msg = whatsapp_service.get_pipeline_status_message(db_session, "whatsapp:+12345")
-    assert msg is None
+    def test_clear_conversation(self, db):
+        whatsapp_service.handle_incoming_message(
+            db, from_number="whatsapp:+1000000002", body="house in LA"
+        )
+        assert whatsapp_service.clear_conversation("whatsapp:+1000000002") is True
+        assert whatsapp_service.clear_conversation("whatsapp:+1000000002") is False
+
+    def test_get_pipeline_status_message(self, db):
+        whatsapp_service.handle_incoming_message(
+            db, from_number="whatsapp:+1000000003", body="house in LA"
+        )
+        msg = whatsapp_service.get_pipeline_status_message(db, "whatsapp:+1000000003")
+        assert msg is not None
+        assert "extraction" in msg
+
+    def test_get_pipeline_status_no_conversation(self, db):
+        msg = whatsapp_service.get_pipeline_status_message(db, "whatsapp:+9999999999")
+        assert msg is None
 
 
-# ============================================================================
-# Tests: send_whatsapp_message (simulated)
-# ============================================================================
-
-
-@mock.patch("app.services.whatsapp_service.settings.twilio_account_sid", "")
-@mock.patch("app.services.whatsapp_service.settings.twilio_auth_token", "")
-def test_send_whatsapp_message_simulated() -> None:
-    """When Twilio creds are absent, send_whatsapp_message returns simulated response."""
-    result = whatsapp_service.send_whatsapp_message(
-        "whatsapp:+12345",
-        "Hello",
-    )
-
-    assert result["status"] == "simulated"
-    assert result["to"] == "whatsapp:+12345"
-    assert result["body"] == "Hello"
-
-
-def test_send_whatsapp_message_adds_whatsapp_prefix() -> None:
-    """If number doesn't have 'whatsapp:' prefix, it's added."""
-    # Use simulated mode (no real Twilio creds in test)
-    with mock.patch(
-        "app.services.whatsapp_service.settings.twilio_account_sid", ""
-    ):
-        result = whatsapp_service.send_whatsapp_message("+12345", "Hi")
-        # In simulated mode, the prefix is handled by the endpoint
+class TestSendWhatsAppMessage:
+    def test_simulated_send_when_no_credentials(self):
+        result = whatsapp_service.send_whatsapp_message(
+            "whatsapp:+1234567890", "Hello!"
+        )
         assert result["status"] == "simulated"
+        assert result["to"] == "whatsapp:+1234567890"
+        assert result["body"] == "Hello!"
+
+    @patch("app.services.whatsapp_service.TwilioClient")
+    def test_real_send_with_credentials(self, mock_twilio_cls):
+        mock_message = MagicMock()
+        mock_message.sid = "SM_TEST_SID"
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_message
+        mock_twilio_cls.return_value = mock_client
+
+        with patch.object(whatsapp_service.settings, "twilio_account_sid", "ACTEST"), \
+             patch.object(whatsapp_service.settings, "twilio_auth_token", "test_token"), \
+             patch.object(whatsapp_service.settings, "twilio_whatsapp_number", "whatsapp:+15551234567"):
+            result = whatsapp_service.send_whatsapp_message(
+                "+1234567890", "Hello!"
+            )
+
+        assert result["status"] == "sent"
+        assert result["sid"] == "SM_TEST_SID"
+        assert result["to"] == "whatsapp:+1234567890"
+        mock_client.messages.create.assert_called_once_with(
+            body="Hello!",
+            from_="whatsapp:+15551234567",
+            to="whatsapp:+1234567890",
+        )
+
+    def test_whatsapp_prefix_not_duplicated(self):
+        result = whatsapp_service.send_whatsapp_message(
+            "whatsapp:+1234567890", "Test"
+        )
+        # In simulated mode, just verify the to field is preserved
+        assert result["to"] == "whatsapp:+1234567890"
 
 
-# ============================================================================
-# Tests: send_pipeline_results
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Webhook endpoint tests
+# ---------------------------------------------------------------------------
 
 
-@mock.patch("app.services.whatsapp_service.send_whatsapp_message")
-def test_send_pipeline_results_with_rankings(
-    mock_send: mock.Mock, db_session: Session
-) -> None:
-    """send_pipeline_results formats and sends ranked listings."""
-    # Create a pipeline run with ranked results
-    transcript = Transcript(raw_text="Test", upload_method="whatsapp")
-    db_session.add(transcript)
-    db_session.commit()
+class TestWhatsAppWebhook:
+    """Tests for the /api/v1/whatsapp/webhook endpoint."""
 
-    pipeline_run = PipelineRun(transcript_id=transcript.id)
-    db_session.add(pipeline_run)
-    db_session.commit()
+    def test_webhook_creates_transcript_and_returns_twiml(self, client, db):
+        resp = client.post(
+            "/api/v1/whatsapp/webhook",
+            data={
+                "From": "whatsapp:+19998887777",
+                "Body": "I need a 2-bed apartment in San Francisco under 800k",
+                "ProfileName": "Bob",
+                "To": "whatsapp:+14155238886",
+                "MessageSid": "SM_FAKE_SID",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/xml; charset=utf-8"
+        # TwiML should contain a <Message> element with the reply
+        assert "<Message>" in resp.text
+        assert "Thanks Bob" in resp.text
+        assert "Pipeline #" in resp.text
 
-    # Create a requirement
-    requirement = ExtractedRequirement(
-        transcript_id=transcript.id,
-        client_name="Alice",
-    )
-    db_session.add(requirement)
-    db_session.commit()
+    def test_webhook_empty_body(self, client):
+        resp = client.post(
+            "/api/v1/whatsapp/webhook",
+            data={
+                "From": "whatsapp:+10000000000",
+                "Body": "",
+            },
+        )
+        assert resp.status_code == 200
+        assert "describing what kind of property" in resp.text
 
-    # Create listings and rankings
-    listing1 = Listing(
-        address="123 Main St",
-        price=500000,
-        bedrooms=2,
-        bathrooms=1,
-        sqft=1200,
-        zillow_url="https://www.zillow.com/123",
-    )
-    db_session.add(listing1)
-    db_session.commit()
+    def test_webhook_duplicate_sender(self, client, db):
+        # First message
+        client.post(
+            "/api/v1/whatsapp/webhook",
+            data={
+                "From": "whatsapp:+17776665555",
+                "Body": "House in Dallas",
+            },
+        )
+        # Second message from same sender
+        resp = client.post(
+            "/api/v1/whatsapp/webhook",
+            data={
+                "From": "whatsapp:+17776665555",
+                "Body": "Any updates?",
+            },
+        )
+        assert resp.status_code == 200
+        assert "still in progress" in resp.text
 
-    ranking1 = RankedResult(
-        pipeline_run_id=pipeline_run.id,
-        listing_id=listing1.id,
-        requirement_id=requirement.id,
-        rank_position=1,
-        overall_score=0.95,
-    )
-    db_session.add(ranking1)
-    db_session.commit()
-
-    # Call send_pipeline_results
-    mock_send.return_value = {"status": "sent", "sid": "MM123"}
-
-    result = whatsapp_service.send_pipeline_results(
-        db_session, pipeline_run.id, "whatsapp:+14155238886"
-    )
-
-    # Verify send was called
-    assert mock_send.called
-    call_args = mock_send.call_args
-    assert "14155238886" in call_args[0][0] or "whatsapp:+14155238886" in call_args[0][0]
-    message_text = call_args[0][1]
-    assert "123 Main St" in message_text
-    assert "$500,000" in message_text
-    assert "2bd" in message_text
-    assert "95%" in message_text
+    @patch("app.routers.whatsapp._validate_twilio_signature", return_value=False)
+    def test_webhook_rejects_invalid_signature(self, mock_validate, client):
+        resp = client.post(
+            "/api/v1/whatsapp/webhook",
+            data={
+                "From": "whatsapp:+10000000000",
+                "Body": "Hello",
+            },
+        )
+        assert resp.status_code == 403
 
 
-@mock.patch("app.services.whatsapp_service.send_whatsapp_message")
-def test_send_pipeline_results_no_rankings(
-    mock_send: mock.Mock, db_session: Session
-) -> None:
-    """send_pipeline_results handles case with no ranked listings."""
-    transcript = Transcript(raw_text="Test", upload_method="whatsapp")
-    db_session.add(transcript)
-    db_session.commit()
+class TestManagementEndpoints:
+    """Tests for the dashboard management API."""
 
-    pipeline_run = PipelineRun(transcript_id=transcript.id)
-    db_session.add(pipeline_run)
-    db_session.commit()
+    def test_list_conversations_empty(self, client):
+        resp = client.get("/api/v1/whatsapp/conversations")
+        assert resp.status_code == 200
+        assert resp.json() == {"conversations": {}}
 
-    mock_send.return_value = {"status": "sent", "sid": "MM123"}
+    def test_list_conversations_after_message(self, client, db):
+        client.post(
+            "/api/v1/whatsapp/webhook",
+            data={
+                "From": "whatsapp:+11112223333",
+                "Body": "House in NYC",
+            },
+        )
+        resp = client.get("/api/v1/whatsapp/conversations")
+        assert resp.status_code == 200
+        convos = resp.json()["conversations"]
+        assert "whatsapp:+11112223333" in convos
 
-    result = whatsapp_service.send_pipeline_results(
-        db_session, pipeline_run.id, "whatsapp:+12345"
-    )
+    def test_get_status_no_conversation(self, client):
+        resp = client.get("/api/v1/whatsapp/status/whatsapp:+19999999999")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "no_active_pipeline"
 
-    # Verify send was called with "no rankings" message
-    assert mock_send.called
-    call_args = mock_send.call_args
-    message_text = call_args[0][1]
-    assert "no ranked listings" in message_text.lower()
+    def test_send_message_simulated(self, client):
+        resp = client.post(
+            "/api/v1/whatsapp/send-message",
+            json={
+                "to_number": "whatsapp:+12223334444",
+                "message": "Test message",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "simulated"
+
+    def test_send_results_no_rankings(self, client, db):
+        # Create a pipeline run with no rankings
+        transcript = Transcript(raw_text="test", upload_method="whatsapp", status="uploaded")
+        db.add(transcript)
+        db.commit()
+        db.refresh(transcript)
+
+        run = PipelineRun(
+            transcript_id=transcript.id,
+            current_stage=PipelineStage.REVIEW.value,
+            status=PipelineStatus.COMPLETED.value,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+
+        resp = client.post(
+            "/api/v1/whatsapp/send-results",
+            json={
+                "to_number": "whatsapp:+15556667777",
+                "pipeline_run_id": run.id,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "simulated"
+        assert "no ranked listings" in data["body"].lower()
