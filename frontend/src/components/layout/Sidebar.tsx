@@ -17,8 +17,8 @@ function NavItem({ to, label, end }: { to: string; label: string; end?: boolean 
         background: show ? 'rgba(0,0,0,0.05)' : 'transparent',
         transition: 'background 0.2s, padding-left 0.2s',
       }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => { setHovered(true); }}
+      onMouseLeave={() => { setHovered(false); }}
     >
       <div className="flex justify-between items-center">
         <span className="font-heading text-[28px] uppercase tracking-[0.5px] font-normal">

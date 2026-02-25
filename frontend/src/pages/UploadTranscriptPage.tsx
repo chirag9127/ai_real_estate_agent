@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { uploadTranscript, pasteTranscript } from '../api/transcripts';
 import { extractRequirements } from '../api/requirements';
+import { uploadTranscript, pasteTranscript } from '../api/transcripts';
 import ErrorAlert from '../components/common/ErrorAlert';
 
 export default function UploadTranscriptPage() {
@@ -17,8 +17,10 @@ export default function UploadTranscriptPage() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const dropped = e.dataTransfer.files[0];
-    if (dropped) setFile(dropped);
+    const file = e.dataTransfer.files[0] as File | undefined;
+    if (file) {
+      setFile(file);
+    }
   }, []);
 
   const handleSubmit = async (autoExtract: boolean) => {
@@ -29,7 +31,7 @@ export default function UploadTranscriptPage() {
       if (tab === 'file' && file) {
         transcript = await uploadTranscript(file);
       } else if (tab === 'paste' && text.trim()) {
-        transcript = await pasteTranscript(text, clientName || undefined);
+        transcript = await pasteTranscript(text, clientName);
       } else {
         setError('Please provide a transcript file or text.');
         setLoading(false);
@@ -40,7 +42,7 @@ export default function UploadTranscriptPage() {
         await extractRequirements(transcript.id);
       }
 
-      navigate(`/transcripts/${transcript.id}`);
+      void navigate(`/transcripts/${transcript.id}`);
     } catch {
       setError('Failed to upload transcript. Please try again.');
     } finally {
@@ -56,7 +58,7 @@ export default function UploadTranscriptPage() {
         {/* Tab switcher */}
         <div className="flex border-b border-ink">
           <button
-            onClick={() => setTab('file')}
+            onClick={() => { setTab('file'); }}
             className={`flex-1 py-4 text-[11px] uppercase tracking-[1px] text-center cursor-pointer transition-colors ${
               tab === 'file' ? 'bg-ink text-surface' : 'hover:bg-ink/5'
             }`}
@@ -64,7 +66,7 @@ export default function UploadTranscriptPage() {
             File Upload
           </button>
           <button
-            onClick={() => setTab('paste')}
+            onClick={() => { setTab('paste'); }}
             className={`flex-1 py-4 text-[11px] uppercase tracking-[1px] text-center cursor-pointer border-l border-ink transition-colors ${
               tab === 'paste' ? 'bg-ink text-surface' : 'hover:bg-ink/5'
             }`}
@@ -80,7 +82,7 @@ export default function UploadTranscriptPage() {
                 e.preventDefault();
                 setDragOver(true);
               }}
-              onDragLeave={() => setDragOver(false)}
+              onDragLeave={() => { setDragOver(false); }}
               onDrop={handleDrop}
               className={`border-2 border-dashed p-12 text-center transition-colors ${
                 dragOver ? 'border-accent-orange bg-accent-orange/5' : 'border-ink/30 hover:border-ink/60'
@@ -93,7 +95,7 @@ export default function UploadTranscriptPage() {
                     {(file.size / 1024).toFixed(1)} KB
                   </p>
                   <button
-                    onClick={() => setFile(null)}
+                    onClick={() => { setFile(null); }}
                     className="mt-3 text-[10px] uppercase border border-ink px-3 py-1 rounded-full hover:bg-ink hover:text-surface transition-colors cursor-pointer"
                   >
                     Remove
@@ -110,7 +112,7 @@ export default function UploadTranscriptPage() {
                       type="file"
                       accept=".txt,.md"
                       className="hidden"
-                      onChange={(e) => setFile(e.target.files?.[0] || null)}
+                      onChange={(e) => { setFile(e.target.files?.[0] ?? null); }}
                     />
                   </label>
                   <p className="text-[9px] uppercase opacity-40 mt-3">Accepts .txt, .md files</p>
@@ -126,7 +128,7 @@ export default function UploadTranscriptPage() {
                 <input
                   type="text"
                   value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
+                  onChange={(e) => { setClientName(e.target.value); }}
                   className="w-full border border-ink bg-transparent px-4 py-3 text-[12px] focus:outline-none focus:ring-1 focus:ring-ink"
                   placeholder="e.g., John Smith"
                 />
@@ -137,7 +139,7 @@ export default function UploadTranscriptPage() {
                 </label>
                 <textarea
                   value={text}
-                  onChange={(e) => setText(e.target.value)}
+                  onChange={(e) => { setText(e.target.value); }}
                   rows={12}
                   className="w-full border border-ink bg-transparent px-4 py-3 text-[12px] font-mono focus:outline-none focus:ring-1 focus:ring-ink resize-none"
                   placeholder="Paste the call transcript here..."
@@ -150,14 +152,18 @@ export default function UploadTranscriptPage() {
 
           <div className="flex gap-3 pt-2">
             <button
-              onClick={() => handleSubmit(true)}
+              onClick={() => {
+                void handleSubmit(true);
+              }}
               disabled={loading}
               className="flex-1 py-3 bg-ink text-surface text-[11px] uppercase tracking-[1px] cursor-pointer hover:bg-ink/80 transition-colors disabled:opacity-50"
             >
               {loading ? 'Processing...' : 'Upload & Extract'}
             </button>
             <button
-              onClick={() => handleSubmit(false)}
+              onClick={() => {
+                void handleSubmit(false);
+              }}
               disabled={loading}
               className="py-3 px-6 border border-ink text-[11px] uppercase tracking-[1px] cursor-pointer hover:bg-ink/5 transition-colors disabled:opacity-50"
             >
