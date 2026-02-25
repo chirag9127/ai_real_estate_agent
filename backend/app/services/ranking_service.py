@@ -1,8 +1,8 @@
 """Ranking engine: two-phase scoring (algorithmic + LLM semantic).
 
-Phases 1 (quantitative checks) and 2 (LLM semantic evaluation) run
-concurrently via ``asyncio.gather`` so the cheap CPU work overlaps with
-the slow LLM network call.
+Phase 2 (LLM semantic evaluation) is kicked off as an ``asyncio`` task
+before Phase 1 (quantitative checks) runs inline, so the cheap CPU work
+overlaps with the slow LLM network call.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 # ── Quantitative must-have checks (no LLM needed) ────────────────────────
 
-# Each entry: (check_name, constraint_attr, listing_attr, label, comparison, format_fn)
-# comparison: "gte" for listing_value >= constraint, "lte" for <=, "eq" for ==
+# Each entry: (check_name, constraint_attr, listing_attr, label, comparison)
+# comparison: "gte" for listing_value >= constraint, "lte" for <=
 _NUMERIC_CHECKS: list[tuple[str, str, str, str, str]] = [
     ("budget",   "budget_max", "price",    "budget",   "lte"),
     ("bedrooms", "min_beds",   "bedrooms", "beds",     "gte"),
@@ -275,8 +275,8 @@ async def rank_results(
 
     Returns list of RankedResult ORM objects sorted by score descending.
 
-    Phase 1 (quantitative checks) runs inline while Phase 2 (LLM semantic
-    evaluation) proceeds concurrently via ``asyncio.gather``.
+    Phase 2 (LLM semantic evaluation) is started as an ``asyncio.create_task``
+    before Phase 1 (quantitative checks) runs inline, so the two overlap.
     """
     if not listings:
         return []
@@ -295,7 +295,7 @@ async def rank_results(
     # Phase 1 (quantitative) starts inline; Phase 2 (LLM) starts concurrently.
     # The LLM network call dominates wall-clock time, so we kick it off first
     # and run the cheap quantitative checks while awaiting the response.
-    llm_task = asyncio.ensure_future(
+    llm_task = asyncio.create_task(
         _evaluate_semantic(llm, semantic_must_haves, nice_to_haves, listings)
     )
 
