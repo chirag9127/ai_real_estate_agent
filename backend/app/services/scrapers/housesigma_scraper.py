@@ -15,24 +15,18 @@ from typing import Any
 import httpx
 
 from app.services.scrapers.base_scraper import BaseScraper, ScraperError
+from app.services.scrapers.utils import build_browser_headers, strip_province_suffix
 
 logger = logging.getLogger(__name__)
 
 # HouseSigma internal API used by their frontend
 _HOUSESIGMA_API_URL = "https://housesigma.com/bkv2/api/listing/list"
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Content-Type": "application/json",
-    "Origin": "https://housesigma.com",
-    "Referer": "https://housesigma.com/",
-}
+_HEADERS = build_browser_headers(
+    origin="https://housesigma.com",
+    referer="https://housesigma.com/",
+    content_type="application/json",
+)
 
 # Map common location strings to HouseSigma community slugs
 _LOCATION_SLUGS: dict[str, str] = {
@@ -55,14 +49,8 @@ _LOCATION_SLUGS: dict[str, str] = {
 
 def _location_to_slug(location: str) -> str:
     """Convert a location string to a HouseSigma-compatible slug."""
-    normalized = location.lower().strip()
-    # Strip province/state suffixes like ", ON" or ", Ontario"
-    for suffix in [", on", ", ontario", ", bc", ", british columbia",
-                   ", ab", ", alberta", ", qc", ", quebec"]:
-        if normalized.endswith(suffix):
-            normalized = normalized[: -len(suffix)].strip()
-            break
-    return _LOCATION_SLUGS.get(normalized, normalized.replace(" ", "-"))
+    city = strip_province_suffix(location).lower().strip()
+    return _LOCATION_SLUGS.get(city, city.replace(" ", "-"))
 
 
 class HouseSigmaScraper(BaseScraper):
@@ -114,7 +102,6 @@ class HouseSigmaScraper(BaseScraper):
             "limit": 40,
         }
 
-        # Add filters
         if max_price is not None:
             payload["price_max"] = max_price
         if beds_min is not None:

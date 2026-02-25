@@ -28,19 +28,11 @@ from app.services.scrapers.housesigma_scraper import (
     _location_to_slug as housesigma_slug,
 )
 from app.services.scrapers.realtor_ca_scraper import RealtorCaScraper
-from app.services.scrapers.zoocasa_scraper import (
-    ZoocasaScraper,
-    _location_to_zoocasa_slug,
-)
-from app.services.scrapers.condos_ca_scraper import (
-    CondosCaScraper,
-    _location_to_condos_slug,
-)
-from app.services.scrapers.property_ca_scraper import (
-    PropertyCaScraper,
-    _location_to_property_slug,
-)
+from app.services.scrapers.zoocasa_scraper import ZoocasaScraper
+from app.services.scrapers.condos_ca_scraper import CondosCaScraper
+from app.services.scrapers.property_ca_scraper import PropertyCaScraper
 from app.services.scrapers.zillow_scraper import ZillowScraper
+from app.services.scrapers.utils import slugify, canadian_city_slug
 from app.services.search_service import (
     _map_generic_prop_to_listing,
     _parse_int_from_string,
@@ -141,30 +133,36 @@ class TestHouseSigmaSlug:
 
 
 class TestZoocasaSlug:
+    """Zoocasa uses the generic slugify (keeps province in slug)."""
+
     def test_toronto_on(self):
-        assert _location_to_zoocasa_slug("Toronto, ON") == "toronto-on"
+        assert slugify("Toronto, ON") == "toronto-on"
 
     def test_vancouver_bc(self):
-        assert _location_to_zoocasa_slug("Vancouver, BC") == "vancouver-bc"
+        assert slugify("Vancouver, BC") == "vancouver-bc"
 
     def test_extra_spaces(self):
-        assert _location_to_zoocasa_slug("  Ottawa ,  ON  ") == "ottawa-on"
+        assert slugify("  Ottawa ,  ON  ") == "ottawa-on"
 
 
 class TestCondosCaSlug:
+    """Condos.ca uses canadian_city_slug (strips province)."""
+
     def test_toronto_on(self):
-        assert _location_to_condos_slug("Toronto, ON") == "toronto"
+        assert canadian_city_slug("Toronto, ON") == "toronto"
 
     def test_vancouver_bc(self):
-        assert _location_to_condos_slug("Vancouver, BC") == "vancouver"
+        assert canadian_city_slug("Vancouver, BC") == "vancouver"
 
 
 class TestPropertyCaSlug:
+    """Property.ca uses canadian_city_slug (strips province)."""
+
     def test_toronto_on(self):
-        assert _location_to_property_slug("Toronto, ON") == "toronto"
+        assert canadian_city_slug("Toronto, ON") == "toronto"
 
     def test_richmond_hill(self):
-        assert _location_to_property_slug("Richmond Hill, ON") == "richmond-hill"
+        assert canadian_city_slug("Richmond Hill, ON") == "richmond-hill"
 
 
 # ---------------------------------------------------------------------------

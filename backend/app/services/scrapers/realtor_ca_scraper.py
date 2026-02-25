@@ -13,23 +13,17 @@ from typing import Any
 import httpx
 
 from app.services.scrapers.base_scraper import BaseScraper, ScraperError
+from app.services.scrapers.utils import build_browser_headers
 
 logger = logging.getLogger(__name__)
 
 # Realtor.ca property search API (used by their web frontend)
 _REALTOR_CA_API_URL = "https://api2.realtor.ca/Listing.svc/PropertySearch_Post"
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
-    ),
-    "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Origin": "https://www.realtor.ca",
-    "Referer": "https://www.realtor.ca/",
-}
+_HEADERS = build_browser_headers(
+    origin="https://www.realtor.ca",
+    referer="https://www.realtor.ca/",
+)
 
 # Nominatim for geocoding locations to lat/lng
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
@@ -191,10 +185,7 @@ class RealtorCaScraper(BaseScraper):
             photo = (prop.get("Photo", [{}]) or [{}])[0]
 
             # Build full address
-            address_parts = [
-                address_obj.get("AddressText", ""),
-            ]
-            full_address = ", ".join(p for p in address_parts if p)
+            full_address = address_obj.get("AddressText", "")
 
             # Build listing URL
             mls_number = item.get("MlsNumber", "")
