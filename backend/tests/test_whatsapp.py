@@ -60,7 +60,7 @@ def test_handle_incoming_message_creates_transcript_and_pipeline(db_session: Ses
     from_number = "whatsapp:+14155238886"
     body = "Looking for a 2-bedroom apartment in San Francisco"
 
-    reply = whatsapp_service.handle_incoming_message(
+    reply, pipeline_run_id = whatsapp_service.handle_incoming_message(
         db_session,
         from_number=from_number,
         body=body,
@@ -70,6 +70,7 @@ def test_handle_incoming_message_creates_transcript_and_pipeline(db_session: Ses
     # Verify reply message
     assert "Alice" in reply
     assert "property" in reply.lower() and "search" in reply.lower()
+    assert pipeline_run_id is not None
 
     # Verify transcript was created
     transcript = db_session.query(Transcript).filter_by(raw_text=body).first()
@@ -82,6 +83,7 @@ def test_handle_incoming_message_creates_transcript_and_pipeline(db_session: Ses
         transcript_id=transcript.id
     ).first()
     assert pipeline_run is not None
+    assert pipeline_run.id == pipeline_run_id
     assert pipeline_run.current_stage == PipelineStage.EXTRACTION.value
     assert pipeline_run.status == PipelineStatus.IN_PROGRESS.value
     assert pipeline_run.ingestion_completed_at is not None
@@ -95,13 +97,14 @@ def test_handle_incoming_message_empty_body(db_session: Session) -> None:
     """Empty or whitespace-only message is rejected."""
     whatsapp_service._active_conversations.clear()
 
-    reply = whatsapp_service.handle_incoming_message(
+    reply, pipeline_run_id = whatsapp_service.handle_incoming_message(
         db_session,
         from_number="whatsapp:+12345",
         body="   ",
     )
 
     assert "Please send a message" in reply
+    assert pipeline_run_id is None
 
 
 def test_handle_incoming_message_returns_status_when_pipeline_in_progress(
@@ -128,7 +131,7 @@ def test_handle_incoming_message_returns_status_when_pipeline_in_progress(
     whatsapp_service._active_conversations[from_number] = pipeline_run.id
 
     # Send a second message
-    reply = whatsapp_service.handle_incoming_message(
+    reply, new_pipeline_run_id = whatsapp_service.handle_incoming_message(
         db_session,
         from_number=from_number,
         body="Another request",
@@ -137,6 +140,7 @@ def test_handle_incoming_message_returns_status_when_pipeline_in_progress(
     # Should get status reply, not create a new pipeline
     assert "still in progress" in reply.lower()
     assert "stage" in reply.lower()
+    assert new_pipeline_run_id is None  # No new pipeline should be created
 
 
 # ============================================================================

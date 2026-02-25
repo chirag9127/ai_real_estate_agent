@@ -45,8 +45,12 @@ def handle_incoming_message(
     from_number: str,
     body: str,
     profile_name: str | None = None,
-) -> str:
-    """Process an incoming WhatsApp message and return a TwiML-friendly reply.
+) -> tuple[str, int | None]:
+    """Process an incoming WhatsApp message.
+
+    Returns ``(reply_text, pipeline_run_id)``.  *pipeline_run_id* is set only
+    when a **new** pipeline was created and should be scheduled for background
+    execution; otherwise it is ``None``.
 
     The first message from a number is treated as a property-requirement
     transcript.  Subsequent messages while a pipeline is running return a
@@ -54,7 +58,10 @@ def handle_incoming_message(
     """
     body = body.strip()
     if not body:
-        return "Please send a message describing what kind of property you're looking for."
+        return (
+            "Please send a message describing what kind of property you're looking for.",
+            None,
+        )
 
     # If the user already has a pipeline in progress, return status
     if from_number in _active_conversations:
@@ -64,7 +71,8 @@ def handle_incoming_message(
             return (
                 f"Your property search is still in progress "
                 f"(stage: {run.current_stage}). "
-                "I'll message you when results are ready!"
+                "I'll message you when results are ready!",
+                None,
             )
         # Previous run finished or failed -- allow a new one
         del _active_conversations[from_number]
@@ -104,7 +112,8 @@ def handle_incoming_message(
         f"Thanks{(' ' + profile_name) if profile_name else ''}! "
         f"I've received your property requirements and started searching. "
         f"Pipeline #{pipeline_run.id} is now running. "
-        "I'll send you the results once they're ready!"
+        "I'll send you the results once they're ready!",
+        pipeline_run.id,
     )
 
 
