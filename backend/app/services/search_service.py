@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -202,26 +203,35 @@ async def search_listings(
     all_listings: list[Listing] = []
 
     try:
-        client = ZillowClient()
-
-        for location in locations:
-            logger.info(
-                "Searching Zillow: location=%s, max_price=%s, beds=%s, baths=%s, sqft=%s",
-                location, max_price, requirement.min_beds, requirement.min_baths, requirement.min_sqft,
+        async with ZillowClient() as client:
+            # Shared filter kwargs for every location search
+            filters: dict[str, Any] = dict(
+                max_price=max_price,
+                beds_min=requirement.min_beds or None,
+                baths_min=requirement.min_baths or None,
+                sqft_min=requirement.min_sqft or None,
             )
-            try:
-                results = await client.search_by_url(
-                    location=location,
-                    max_price=max_price,
-                    beds_min=requirement.min_beds if requirement.min_beds else None,
-                    baths_min=requirement.min_baths if requirement.min_baths else None,
-                    sqft_min=requirement.min_sqft if requirement.min_sqft else None,
-                )
-            except ZillowAPIError as e:
-                logger.error("Zillow search failed for location %s: %s", location, e)
-                continue
 
-            for prop in results:
+            async def _search_location(location: str) -> list[dict[str, Any]]:
+                """Search a single location, returning [] on failure."""
+                logger.info(
+                    "Searching Zillow: location=%s, max_price=%s, beds=%s, baths=%s, sqft=%s",
+                    location, max_price, requirement.min_beds,
+                    requirement.min_baths, requirement.min_sqft,
+                )
+                try:
+                    return await client.search_by_url(location=location, **filters)
+                except ZillowAPIError as e:
+                    logger.error("Zillow search failed for location %s: %s", location, e)
+                    return []
+
+            # Search all locations concurrently
+            location_results = await asyncio.gather(
+                *(_search_location(loc) for loc in locations)
+            )
+
+            # Flatten results and map to Listing objects
+            for prop in (p for results in location_results for p in results):
                 listing = _map_zillow_prop_to_listing(
                     prop,
                     pipeline_run_id=pipeline_run_id,
