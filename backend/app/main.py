@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncGenerator  # noqa: TC003
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
