@@ -1,7 +1,13 @@
-"""Ranking engine: two-phase scoring (algorithmic + LLM semantic)."""
+"""Ranking engine: two-phase scoring (algorithmic + LLM semantic).
+
+Phases 1 (quantitative checks) and 2 (LLM semantic evaluation) run
+concurrently via ``asyncio.gather`` so the cheap CPU work overlaps with
+the slow LLM network call.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -18,57 +24,47 @@ logger = logging.getLogger(__name__)
 
 # ── Quantitative must-have checks (no LLM needed) ────────────────────────
 
-
-def _check_budget(listing: Listing, requirement: ExtractedRequirement) -> dict:
-    if not requirement.budget_max or requirement.budget_max == 0:
-        return {"pass": True, "reason": "No budget constraint specified"}
-    if listing.price is None:
-        return {"pass": False, "reason": "Listing has no price data"}
-    passed = listing.price <= requirement.budget_max
-    op = "<=" if passed else ">"
-    return {
-        "pass": passed,
-        "reason": f"${listing.price:,.0f} {op} ${requirement.budget_max:,.0f} budget",
-    }
+# Each entry: (check_name, constraint_attr, listing_attr, label, comparison, format_fn)
+# comparison: "gte" for listing_value >= constraint, "lte" for <=, "eq" for ==
+_NUMERIC_CHECKS: list[tuple[str, str, str, str, str]] = [
+    ("budget",   "budget_max", "price",    "budget",   "lte"),
+    ("bedrooms", "min_beds",   "bedrooms", "beds",     "gte"),
+    ("bathrooms","min_baths",  "bathrooms","baths",    "gte"),
+    ("sqft",     "min_sqft",   "sqft",     "sqft",     "gte"),
+]
 
 
-def _check_bedrooms(listing: Listing, requirement: ExtractedRequirement) -> dict:
-    if not requirement.min_beds or requirement.min_beds == 0:
-        return {"pass": True, "reason": "No bedroom constraint"}
-    if listing.bedrooms is None:
-        return {"pass": False, "reason": "Listing has no bedroom data"}
-    passed = listing.bedrooms >= requirement.min_beds
-    op = ">=" if passed else "<"
-    return {
-        "pass": passed,
-        "reason": f"{listing.bedrooms} beds {op} {requirement.min_beds} required",
-    }
+def _format_value(value: float | int, label: str) -> str:
+    """Format a numeric value for human-readable check reasons."""
+    if label == "budget":
+        return f"${value:,.0f}"
+    if label == "sqft":
+        return f"{value:,}"
+    return str(value)
 
 
-def _check_bathrooms(listing: Listing, requirement: ExtractedRequirement) -> dict:
-    if not requirement.min_baths or requirement.min_baths == 0:
-        return {"pass": True, "reason": "No bathroom constraint"}
-    if listing.bathrooms is None:
-        return {"pass": False, "reason": "Listing has no bathroom data"}
-    passed = listing.bathrooms >= requirement.min_baths
-    op = ">=" if passed else "<"
-    return {
-        "pass": passed,
-        "reason": f"{listing.bathrooms} baths {op} {requirement.min_baths} required",
-    }
+def _check_numeric(
+    listing: Listing, requirement: ExtractedRequirement,
+    constraint_attr: str, listing_attr: str, label: str, comparison: str,
+) -> dict:
+    """Generic numeric check: compare a listing value against a requirement constraint."""
+    constraint = getattr(requirement, constraint_attr)
+    if not constraint:
+        return {"pass": True, "reason": f"No {label} constraint"}
+    listing_value = getattr(listing, listing_attr)
+    if listing_value is None:
+        return {"pass": False, "reason": f"Listing has no {label} data"}
 
+    if comparison == "lte":
+        passed = listing_value <= constraint
+        op = "<=" if passed else ">"
+    else:  # gte
+        passed = listing_value >= constraint
+        op = ">=" if passed else "<"
 
-def _check_sqft(listing: Listing, requirement: ExtractedRequirement) -> dict:
-    if not requirement.min_sqft or requirement.min_sqft == 0:
-        return {"pass": True, "reason": "No sqft constraint"}
-    if listing.sqft is None:
-        return {"pass": False, "reason": "Listing has no sqft data"}
-    passed = listing.sqft >= requirement.min_sqft
-    op = ">=" if passed else "<"
-    return {
-        "pass": passed,
-        "reason": f"{listing.sqft:,} sqft {op} {requirement.min_sqft:,} required",
-    }
+    lv = _format_value(listing_value, label)
+    cv = _format_value(constraint, label)
+    return {"pass": passed, "reason": f"{lv} {label} {op} {cv} required"}
 
 
 def _check_property_type(listing: Listing, requirement: ExtractedRequirement) -> dict:
@@ -87,14 +83,13 @@ def _check_property_type(listing: Listing, requirement: ExtractedRequirement) ->
 def _run_quantitative_checks(
     listing: Listing, requirement: ExtractedRequirement
 ) -> dict[str, dict]:
-    """Run all algorithmic must-have checks."""
-    return {
-        "budget": _check_budget(listing, requirement),
-        "bedrooms": _check_bedrooms(listing, requirement),
-        "bathrooms": _check_bathrooms(listing, requirement),
-        "sqft": _check_sqft(listing, requirement),
-        "property_type": _check_property_type(listing, requirement),
+    """Run all algorithmic must-have checks for a single listing."""
+    checks = {
+        name: _check_numeric(listing, requirement, constraint_attr, listing_attr, label, cmp)
+        for name, constraint_attr, listing_attr, label, cmp in _NUMERIC_CHECKS
     }
+    checks["property_type"] = _check_property_type(listing, requirement)
+    return checks
 
 
 # ── Semantic must-have filtering ──────────────────────────────────────────
@@ -120,24 +115,19 @@ def _get_semantic_must_haves(requirement: ExtractedRequirement) -> list[str]:
 # ── LLM semantic evaluation ──────────────────────────────────────────────
 
 
+_LISTING_FIELDS = (
+    "id", "address", "price", "bedrooms", "bathrooms", "sqft",
+    "property_type", "description", "neighborhood", "year_built",
+    "days_on_market",
+)
+
+
 def _listings_to_dicts(listings: list[Listing]) -> list[dict]:
     """Convert Listing ORM objects to dicts for prompt building."""
-    result = []
-    for listing in listings:
-        result.append({
-            "id": listing.id,
-            "address": listing.address,
-            "price": listing.price,
-            "bedrooms": listing.bedrooms,
-            "bathrooms": listing.bathrooms,
-            "sqft": listing.sqft,
-            "property_type": listing.property_type,
-            "description": listing.description,
-            "neighborhood": listing.neighborhood,
-            "year_built": listing.year_built,
-            "days_on_market": listing.days_on_market,
-        })
-    return result
+    return [
+        {field: getattr(listing, field) for field in _LISTING_FIELDS}
+        for listing in listings
+    ]
 
 
 def _parse_llm_response(raw_text: str) -> dict[str, Any]:
@@ -205,22 +195,17 @@ def _compute_scores(
     llm_result: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Combine quantitative and semantic results into final scores."""
-    listing_id_str = str(listing.id)
+    listing_llm = (llm_result or {}).get(str(listing.id), {})
 
     # ── Must-have evaluation ──
     all_must_have_checks: dict[str, dict] = dict(quant_checks)
 
-    if llm_result and listing_id_str in llm_result:
-        listing_llm = llm_result[listing_id_str]
+    if listing_llm:
         semantic_checks = listing_llm.get("must_have_checks", {})
         for mh_text in semantic_must_haves:
-            if mh_text in semantic_checks:
-                all_must_have_checks[mh_text] = semantic_checks[mh_text]
-            else:
-                all_must_have_checks[mh_text] = {
-                    "pass": False,
-                    "reason": "Not evaluated by LLM",
-                }
+            all_must_have_checks[mh_text] = semantic_checks.get(
+                mh_text, {"pass": False, "reason": "Not evaluated by LLM"}
+            )
     elif semantic_must_haves:
         # LLM failed — default semantic must-haves to pass (graceful fallback)
         for mh_text in semantic_must_haves:
@@ -237,14 +222,12 @@ def _compute_scores(
     # ── Nice-to-have evaluation ──
     nice_to_have_details: dict[str, dict] = {}
 
-    if llm_result and listing_id_str in llm_result:
-        listing_llm = llm_result[listing_id_str]
+    if listing_llm:
         nth_scores = listing_llm.get("nice_to_have_scores", {})
         for nth_text in nice_to_haves:
-            if nth_text in nth_scores:
-                nice_to_have_details[nth_text] = nth_scores[nth_text]
-            else:
-                nice_to_have_details[nth_text] = {"score": 0.5, "reason": "Not evaluated"}
+            nice_to_have_details[nth_text] = nth_scores.get(
+                nth_text, {"score": 0.5, "reason": "Not evaluated"}
+            )
     elif nice_to_haves:
         for nth_text in nice_to_haves:
             nice_to_have_details[nth_text] = {
@@ -262,10 +245,8 @@ def _compute_scores(
     # ── Overall score ──
     # 60% must-have pass rate + 40% nice-to-have score
     # Hard penalty if any must-have fails
-    if must_have_pass:
-        overall_score = 0.6 * must_have_rate + 0.4 * nice_to_have_score
-    else:
-        overall_score = 0.6 * must_have_rate + 0.4 * nice_to_have_score * 0.5
+    nth_weight = nice_to_have_score if must_have_pass else nice_to_have_score * 0.5
+    overall_score = 0.6 * must_have_rate + 0.4 * nth_weight
 
     return {
         "overall_score": round(overall_score, 4),
@@ -293,6 +274,9 @@ async def rank_results(
     """Score, rank, and persist RankedResult records.
 
     Returns list of RankedResult ORM objects sorted by score descending.
+
+    Phase 1 (quantitative checks) runs inline while Phase 2 (LLM semantic
+    evaluation) proceeds concurrently via ``asyncio.gather``.
     """
     if not listings:
         return []
@@ -303,32 +287,36 @@ async def rank_results(
     logger.info(
         "Ranking %d listings: %d quantitative checks, %d semantic must-haves, %d nice-to-haves",
         len(listings),
-        5,
+        len(_NUMERIC_CHECKS) + 1,
         len(semantic_must_haves),
         len(nice_to_haves),
     )
 
-    # Phase 1: Quantitative checks (instant)
-    quant_results: dict[int, dict[str, dict]] = {}
-    for listing in listings:
-        quant_results[listing.id] = _run_quantitative_checks(listing, requirement)
-
-    # Phase 2: Semantic evaluation (single batched LLM call)
-    llm_result = await _evaluate_semantic(
-        llm, semantic_must_haves, nice_to_haves, listings
+    # Phase 1 (quantitative) starts inline; Phase 2 (LLM) starts concurrently.
+    # The LLM network call dominates wall-clock time, so we kick it off first
+    # and run the cheap quantitative checks while awaiting the response.
+    llm_task = asyncio.ensure_future(
+        _evaluate_semantic(llm, semantic_must_haves, nice_to_haves, listings)
     )
 
+    quant_results = {
+        listing.id: _run_quantitative_checks(listing, requirement)
+        for listing in listings
+    }
+
+    llm_result = await llm_task
+
     # Phase 3: Compute final scores
-    scored: list[tuple[Listing, dict[str, Any]]] = []
-    for listing in listings:
-        scores = _compute_scores(
+    scored = [
+        (
             listing,
-            quant_results[listing.id],
-            semantic_must_haves,
-            nice_to_haves,
-            llm_result,
+            _compute_scores(
+                listing, quant_results[listing.id],
+                semantic_must_haves, nice_to_haves, llm_result,
+            ),
         )
-        scored.append((listing, scores))
+        for listing in listings
+    ]
 
     # Sort: must_have_pass=True first, then overall_score descending
     scored.sort(
