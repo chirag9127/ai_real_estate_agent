@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getRequirement, updateRequirement } from '../api/requirements';
-import type { ExtractedRequirement, RequirementUpdate } from '../types/requirement';
-import ConfidenceBadge from '../components/requirements/ConfidenceBadge';
-import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorAlert from '../components/common/ErrorAlert';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import ConfidenceBadge from '../components/requirements/ConfidenceBadge';
+import type { ExtractedRequirement, RequirementUpdate } from '../types/requirement';
 
 export default function RequirementsPage() {
   const { id } = useParams<{ id: string }>();
@@ -21,18 +21,18 @@ export default function RequirementsPage() {
         const data = await getRequirement(Number(id));
         setReq(data);
         setForm({
-          client_name: data.client_name || '',
-          budget_max: data.budget_max || 0,
+          client_name: data.client_name ?? '',
+          budget_max: data.budget_max ?? 0,
           locations: data.locations,
           must_haves: data.must_haves,
           nice_to_haves: data.nice_to_haves,
-          property_type: data.property_type || '',
-          min_beds: data.min_beds || 0,
-          min_baths: data.min_baths || 0,
-          min_sqft: data.min_sqft || 0,
-          school_requirement: data.school_requirement || '',
-          timeline: data.timeline || '',
-          financing_type: data.financing_type || '',
+          property_type: data.property_type ?? '',
+          min_beds: data.min_beds ?? 0,
+          min_baths: data.min_baths ?? 0,
+          min_sqft: data.min_sqft ?? 0,
+          school_requirement: data.school_requirement ?? '',
+          timeline: data.timeline ?? '',
+          financing_type: data.financing_type ?? '',
         });
       } catch {
         setError('Failed to load requirements.');
@@ -40,7 +40,7 @@ export default function RequirementsPage() {
         setLoading(false);
       }
     }
-    load();
+    void load();
   }, [id]);
 
   const handleSave = async () => {
@@ -58,18 +58,18 @@ export default function RequirementsPage() {
   };
 
   const updateList = (key: keyof RequirementUpdate, index: number, value: string) => {
-    const list = [...((form[key] as string[]) || [])];
+    const list = [...((form[key] as string[] | undefined) ?? [])];
     list[index] = value;
     setForm({ ...form, [key]: list });
   };
 
   const addToList = (key: keyof RequirementUpdate) => {
-    const list = [...((form[key] as string[]) || []), ''];
+    const list = [...((form[key] as string[] | undefined) ?? []), ''];
     setForm({ ...form, [key]: list });
   };
 
   const removeFromList = (key: keyof RequirementUpdate, index: number) => {
-    const list = ((form[key] as string[]) || []).filter((_, i) => i !== index);
+    const list = ((form[key] as string[] | undefined) ?? []).filter((_, i) => i !== index);
     setForm({ ...form, [key]: list });
   };
 
@@ -104,7 +104,13 @@ export default function RequirementsPage() {
           </div>
         </div>
         <button
-          onClick={() => (editing ? handleSave() : setEditing(true))}
+          onClick={() => {
+            if (editing) {
+              void handleSave();
+            } else {
+              setEditing(true);
+            }
+          }}
           disabled={saving}
           className={`px-4 py-2 text-[11px] uppercase tracking-[1px] cursor-pointer transition-colors disabled:opacity-50 ${
             editing
@@ -125,10 +131,10 @@ export default function RequirementsPage() {
             Client Info
           </div>
           <div className="p-4 space-y-3">
-            <Field label="Name" value={editing ? form.client_name : req.client_name} editing={editing} onChange={(v) => setForm({ ...form, client_name: v })} />
-            <Field label="Budget Max" value={editing ? String(form.budget_max) : req.budget_max ? `$${req.budget_max.toLocaleString()}` : '—'} editing={editing} onChange={(v) => setForm({ ...form, budget_max: Number(v) })} />
-            <Field label="Timeline" value={editing ? form.timeline : req.timeline} editing={editing} onChange={(v) => setForm({ ...form, timeline: v })} />
-            <Field label="Financing" value={editing ? form.financing_type : req.financing_type} editing={editing} onChange={(v) => setForm({ ...form, financing_type: v })} />
+            <Field label="Name" value={editing ? form.client_name : req.client_name} editing={editing} onChange={(v) => { setForm({ ...form, client_name: v }); }} />
+            <Field label="Budget Max" value={editing ? String(form.budget_max) : req.budget_max ? `$${req.budget_max.toLocaleString()}` : '—'} editing={editing} onChange={(v) => { setForm({ ...form, budget_max: Number(v) }); }} />
+            <Field label="Timeline" value={editing ? form.timeline : req.timeline} editing={editing} onChange={(v) => { setForm({ ...form, timeline: v }); }} />
+            <Field label="Financing" value={editing ? form.financing_type : req.financing_type} editing={editing} onChange={(v) => { setForm({ ...form, financing_type: v }); }} />
           </div>
         </section>
 
@@ -138,11 +144,11 @@ export default function RequirementsPage() {
             Property Details
           </div>
           <div className="p-4 space-y-3">
-            <Field label="Type" value={editing ? form.property_type : req.property_type} editing={editing} onChange={(v) => setForm({ ...form, property_type: v })} />
-            <Field label="Min Beds" value={editing ? String(form.min_beds) : String(req.min_beds || 'Any')} editing={editing} onChange={(v) => setForm({ ...form, min_beds: Number(v) })} />
-            <Field label="Min Baths" value={editing ? String(form.min_baths) : String(req.min_baths || 'Any')} editing={editing} onChange={(v) => setForm({ ...form, min_baths: Number(v) })} />
-            <Field label="Min Sqft" value={editing ? String(form.min_sqft) : req.min_sqft ? req.min_sqft.toLocaleString() : 'Any'} editing={editing} onChange={(v) => setForm({ ...form, min_sqft: Number(v) })} />
-            <Field label="School Req" value={editing ? form.school_requirement : req.school_requirement} editing={editing} onChange={(v) => setForm({ ...form, school_requirement: v })} />
+            <Field label="Type" value={editing ? form.property_type : req.property_type} editing={editing} onChange={(v) => { setForm({ ...form, property_type: v }); }} />
+            <Field label="Min Beds" value={editing ? String(form.min_beds) : String(req.min_beds ?? 'Any')} editing={editing} onChange={(v) => { setForm({ ...form, min_beds: Number(v) }); }} />
+            <Field label="Min Baths" value={editing ? String(form.min_baths) : String(req.min_baths ?? 'Any')} editing={editing} onChange={(v) => { setForm({ ...form, min_baths: Number(v) }); }} />
+            <Field label="Min Sqft" value={editing ? String(form.min_sqft) : req.min_sqft ? req.min_sqft.toLocaleString() : 'Any'} editing={editing} onChange={(v) => { setForm({ ...form, min_sqft: Number(v) }); }} />
+            <Field label="School Req" value={editing ? form.school_requirement : req.school_requirement} editing={editing} onChange={(v) => { setForm({ ...form, school_requirement: v }); }} />
           </div>
         </section>
 
@@ -153,12 +159,12 @@ export default function RequirementsPage() {
           </div>
           <div className="p-4">
             <TagList
-              items={editing ? (form.locations || []) : req.locations}
+              items={editing ? (form.locations ?? []) : req.locations}
               editing={editing}
               color="default"
-              onChange={(i, v) => updateList('locations', i, v)}
-              onAdd={() => addToList('locations')}
-              onRemove={(i) => removeFromList('locations', i)}
+              onChange={(i, v) => { updateList('locations', i, v); }}
+              onAdd={() => { addToList('locations'); }}
+              onRemove={(i) => { removeFromList('locations', i); }}
             />
           </div>
         </section>
@@ -170,12 +176,12 @@ export default function RequirementsPage() {
           </div>
           <div className="p-4">
             <TagList
-              items={editing ? (form.must_haves || []) : req.must_haves}
+              items={editing ? (form.must_haves ?? []) : req.must_haves}
               editing={editing}
               color="orange"
-              onChange={(i, v) => updateList('must_haves', i, v)}
-              onAdd={() => addToList('must_haves')}
-              onRemove={(i) => removeFromList('must_haves', i)}
+              onChange={(i, v) => { updateList('must_haves', i, v); }}
+              onAdd={() => { addToList('must_haves'); }}
+              onRemove={(i) => { removeFromList('must_haves', i); }}
             />
           </div>
         </section>
@@ -187,12 +193,12 @@ export default function RequirementsPage() {
           </div>
           <div className="p-4">
             <TagList
-              items={editing ? (form.nice_to_haves || []) : req.nice_to_haves}
+              items={editing ? (form.nice_to_haves ?? []) : req.nice_to_haves}
               editing={editing}
               color="green"
-              onChange={(i, v) => updateList('nice_to_haves', i, v)}
-              onAdd={() => addToList('nice_to_haves')}
-              onRemove={(i) => removeFromList('nice_to_haves', i)}
+              onChange={(i, v) => { updateList('nice_to_haves', i, v); }}
+              onAdd={() => { addToList('nice_to_haves'); }}
+              onRemove={(i) => { removeFromList('nice_to_haves', i); }}
             />
           </div>
         </section>
@@ -218,12 +224,12 @@ function Field({
       {editing ? (
         <input
           type="text"
-          value={value || ''}
-          onChange={(e) => onChange(e.target.value)}
+          value={value ?? ''}
+          onChange={(e) => { onChange(e.target.value); }}
           className="flex-1 border border-ink bg-transparent px-2 py-1 text-[12px] focus:outline-none focus:ring-1 focus:ring-ink"
         />
       ) : (
-        <span className="font-heading text-[16px]">{value || '—'}</span>
+        <span className="font-heading text-[16px]">{value ?? '—'}</span>
       )}
     </div>
   );
@@ -273,11 +279,11 @@ function TagList({
           <input
             type="text"
             value={item}
-            onChange={(e) => onChange(i, e.target.value)}
+            onChange={(e) => { onChange(i, e.target.value); }}
             className="flex-1 border border-ink bg-transparent px-2 py-1 text-[12px] focus:outline-none focus:ring-1 focus:ring-ink"
           />
           <button
-            onClick={() => onRemove(i)}
+            onClick={() => { onRemove(i); }}
             className="w-6 h-6 border border-ink rounded-full text-[10px] flex items-center justify-center cursor-pointer hover:bg-ink hover:text-surface transition-colors"
           >
             ×

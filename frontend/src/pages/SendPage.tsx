@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getPendingReview } from '../api/review';
 import { sendEmail, getSendStatus } from '../api/send';
-import type { RankedListing } from '../types/listing';
-import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorAlert from '../components/common/ErrorAlert';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import type { RankedListing } from '../types/listing';
 
 export default function SendPage() {
   const { runId } = useParams();
@@ -30,7 +30,7 @@ export default function SendPage() {
         if (status.status === 'sent') {
           setSendResult({
             status: 'sent',
-            message: `${status.sent_count} listings were sent on ${new Date(status.sent_at!).toLocaleString()}.`,
+            message: `${status.sent_count} listings were sent on ${status.sent_at ? new Date(status.sent_at).toLocaleString() : 'unknown date'}.`,
           });
         }
       } catch {
@@ -39,7 +39,7 @@ export default function SendPage() {
         setLoading(false);
       }
     }
-    load();
+    void load();
   }, [runId]);
 
   const handleSend = async () => {
@@ -148,13 +148,13 @@ export default function SendPage() {
               <input
                 type="email"
                 value={recipientEmail}
-                onChange={(e) => setRecipientEmail(e.target.value)}
+                onChange={(e) => { setRecipientEmail(e.target.value); }}
                 placeholder="client@example.com"
                 className="w-full px-4 py-2.5 border border-ink bg-transparent text-[13px] font-mono outline-none focus:border-accent-orange transition-colors"
               />
             </div>
             <button
-              onClick={handleSend}
+              onClick={() => { void handleSend(); }}
               disabled={sending || !recipientEmail.trim() || approved.length === 0}
               className="w-full py-3 bg-ink text-surface text-[11px] uppercase tracking-[1px] cursor-pointer hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
             >
