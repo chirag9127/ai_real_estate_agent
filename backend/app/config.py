@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_whatsapp_number: str = ""  # e.g. whatsapp:+14155238886
+    # Optional: set this to the public URL Twilio uses to reach the webhook
+    # (e.g. https://yourdomain.com/api/v1/whatsapp/webhook).  When behind a
+    # reverse proxy the URL seen by FastAPI differs from the one Twilio signed,
+    # which causes signature validation to fail.
+    twilio_webhook_url: str = ""
 
     model_config = {"env_file": ".env"}
 

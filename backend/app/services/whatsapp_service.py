@@ -239,7 +239,13 @@ def send_whatsapp_message(to_number: str, body: str) -> dict:
 
 
 def send_pipeline_results(db: Session, pipeline_run_id: int, to_number: str) -> dict:
-    """Build a summary of ranked results and send via WhatsApp."""
+    """Build a summary of ranked results and send via WhatsApp.
+
+    WhatsApp messages have a 1600-character limit.  If the full results
+    exceed that, the message is truncated and a note is appended.
+    """
+    MAX_WHATSAPP_LENGTH = 1600
+
     rankings: list[RankedResult] = (
         db.query(RankedResult)
         .filter(RankedResult.pipeline_run_id == pipeline_run_id)
@@ -278,6 +284,12 @@ def send_pipeline_results(db: Session, pipeline_run_id: int, to_number: str) -> 
 
     lines.append("\nReply with a new message to start another search!")
     body = "\n".join(lines)
+
+    # Truncate if the message exceeds WhatsApp's character limit
+    if len(body) > MAX_WHATSAPP_LENGTH:
+        truncation_note = "\n\n... (truncated) View full results in the dashboard."
+        body = body[: MAX_WHATSAPP_LENGTH - len(truncation_note)] + truncation_note
+
     return send_whatsapp_message(to_number, body)
 
 

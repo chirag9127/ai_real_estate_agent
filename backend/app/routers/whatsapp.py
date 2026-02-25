@@ -37,8 +37,10 @@ def _validate_twilio_signature(request: Request, form: dict[str, str]) -> bool:
         return True
 
     signature = request.headers.get("X-Twilio-Signature", "")
-    # Reconstruct the full URL that Twilio used to compute the signature
-    url = str(request.url)
+    # Use the configured public webhook URL when available (required behind
+    # reverse proxies where request.url reflects the internal address, not the
+    # URL Twilio used to compute the signature).
+    url = settings.twilio_webhook_url or str(request.url)
     validator = RequestValidator(settings.twilio_auth_token)
     return validator.validate(url, form, signature)
 
@@ -101,6 +103,9 @@ async def whatsapp_webhook(
 
 # ---------------------------------------------------------------------------
 # Management / dashboard API
+# TODO: These endpoints are unauthenticated, consistent with the rest of the
+# app.  In production, add authentication -- especially for send-message and
+# send-results which trigger outbound messages to arbitrary phone numbers.
 # ---------------------------------------------------------------------------
 
 
@@ -116,7 +121,10 @@ class SendMessageRequest(BaseModel):
 
 @router.get("/conversations")
 def list_conversations() -> dict:
-    """Return active WhatsApp conversations (sender -> pipeline_run_id)."""
+    """Return active WhatsApp conversations (sender -> pipeline_run_id).
+
+    TODO: Add authentication/authorization to prevent unauthorized access.
+    """
     return {
         "conversations": whatsapp_service.get_active_conversations(),
     }
@@ -127,7 +135,10 @@ def send_results(
     body: SendResultsRequest,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Manually send pipeline results to a WhatsApp number."""
+    """Manually send pipeline results to a WhatsApp number.
+
+    TODO: Add authentication/authorization.
+    """
     return whatsapp_service.send_pipeline_results(
         db, body.pipeline_run_id, body.to_number
     )
@@ -135,7 +146,10 @@ def send_results(
 
 @router.post("/send-message")
 def send_message(body: SendMessageRequest) -> dict:
-    """Send an arbitrary WhatsApp message (useful for testing)."""
+    """Send an arbitrary WhatsApp message (useful for testing).
+
+    TODO: Add authentication/authorization and rate limiting.
+    """
     return whatsapp_service.send_whatsapp_message(body.to_number, body.message)
 
 
