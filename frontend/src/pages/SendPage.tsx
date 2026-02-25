@@ -27,10 +27,10 @@ export default function SendPage() {
 
         // Check if already sent
         const status = await getSendStatus(Number(runId));
-        if (status.status === 'sent') {
+        if (status.status === 'sent' && status.sent_at) {
           setSendResult({
             status: 'sent',
-            message: `${status.sent_count} listings were sent on ${new Date(status.sent_at!).toLocaleString()}.`,
+            message: `${status.sent_count} listings were sent on ${new Date(status.sent_at).toLocaleString()}.`,
           });
         }
       } catch {

@@ -31,7 +31,7 @@ export default function UploadTranscriptPage() {
       if (tab === 'file' && file) {
         transcript = await uploadTranscript(file);
       } else if (tab === 'paste' && text.trim()) {
-        transcript = await pasteTranscript(text, clientName);
+        transcript = await pasteTranscript(text, clientName || undefined);
       } else {
         setError('Please provide a transcript file or text.');
         setLoading(false);

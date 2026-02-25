@@ -7,7 +7,7 @@ const routeTitles: Record<string, string> = {
 
 export default function Header() {
   const location = useLocation();
-  let title = routeTitles[location.pathname] || 'EstateOS';
+  let title = routeTitles[location.pathname] ?? 'EstateOS';
   if (/^\/pipeline\/\d+$/.exec(location.pathname)) {
     title = 'Pipeline Detail';
   } else if (/^\/pipeline\/\d+\//.exec(location.pathname)) {
