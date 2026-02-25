@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -374,3 +375,141 @@ class TestManagementEndpoints:
         data = resp.json()
         assert data["status"] == "simulated"
         assert "no ranked listings" in data["body"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Background pipeline execution tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunPipelineAsync:
+    """Tests for whatsapp_service.run_pipeline_async."""
+
+    def _make_pipeline_run(self, db) -> tuple[Transcript, PipelineRun]:
+        transcript = Transcript(raw_text="3-bed house in Austin", upload_method="whatsapp", status="uploaded")
+        db.add(transcript)
+        db.commit()
+        db.refresh(transcript)
+
+        run = PipelineRun(
+            transcript_id=transcript.id,
+            current_stage=PipelineStage.EXTRACTION.value,
+            status=PipelineStatus.IN_PROGRESS.value,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return transcript, run
+
+    @patch("app.services.whatsapp_service.send_whatsapp_message")
+    @patch("app.services.whatsapp_service.send_pipeline_results")
+    @patch("app.services.whatsapp_service.pipeline_service")
+    @patch("app.services.whatsapp_service.get_llm_provider")
+    def test_happy_path_all_steps_succeed(
+        self, mock_llm, mock_pipeline_svc, mock_send_results, mock_send_msg, db
+    ):
+        _, run = self._make_pipeline_run(db)
+        from_number = "whatsapp:+18001111111"
+        whatsapp_service._active_conversations[from_number] = run.id
+
+        # Mock all three pipeline steps to return a successful run
+        successful_run = MagicMock()
+        successful_run.status = PipelineStatus.COMPLETED.value
+
+        mock_pipeline_svc.run_extraction_step = AsyncMock(return_value=successful_run)
+        mock_pipeline_svc.run_search_step = AsyncMock(return_value=successful_run)
+        mock_pipeline_svc.run_ranking_step = AsyncMock(return_value=successful_run)
+
+        # Patch SessionLocal to return our test db
+        with patch("app.services.whatsapp_service.SessionLocal", return_value=db):
+            asyncio.run(whatsapp_service.run_pipeline_async(run.id, from_number))
+
+        # All three steps should have been called
+        mock_pipeline_svc.run_extraction_step.assert_called_once()
+        mock_pipeline_svc.run_search_step.assert_called_once()
+        mock_pipeline_svc.run_ranking_step.assert_called_once()
+
+        # Results should be sent and conversation cleared
+        mock_send_results.assert_called_once()
+        assert from_number not in whatsapp_service._active_conversations
+
+    @patch("app.services.whatsapp_service.send_whatsapp_message")
+    @patch("app.services.whatsapp_service.send_pipeline_results")
+    @patch("app.services.whatsapp_service.pipeline_service")
+    @patch("app.services.whatsapp_service.get_llm_provider")
+    def test_extraction_fails_stops_pipeline(
+        self, mock_llm, mock_pipeline_svc, mock_send_results, mock_send_msg, db
+    ):
+        _, run = self._make_pipeline_run(db)
+        from_number = "whatsapp:+18002222222"
+        whatsapp_service._active_conversations[from_number] = run.id
+
+        # Extraction fails
+        failed_run = MagicMock()
+        failed_run.status = PipelineStatus.FAILED.value
+        failed_run.error_message = "LLM extraction error"
+
+        mock_pipeline_svc.run_extraction_step = AsyncMock(return_value=failed_run)
+
+        with patch("app.services.whatsapp_service.SessionLocal", return_value=db):
+            asyncio.run(whatsapp_service.run_pipeline_async(run.id, from_number))
+
+        # Only extraction should have been called
+        mock_pipeline_svc.run_extraction_step.assert_called_once()
+        mock_pipeline_svc.run_search_step.assert_not_called()
+        mock_pipeline_svc.run_ranking_step.assert_not_called()
+
+        # Error message sent, results NOT sent
+        mock_send_msg.assert_called_once()
+        assert "extraction" in mock_send_msg.call_args[0][1].lower()
+        mock_send_results.assert_not_called()
+
+        # Conversation cleared
+        assert from_number not in whatsapp_service._active_conversations
+
+    @patch("app.services.whatsapp_service.send_whatsapp_message")
+    @patch("app.services.whatsapp_service.pipeline_service")
+    @patch("app.services.whatsapp_service.get_llm_provider")
+    def test_unexpected_error_marks_pipeline_failed(
+        self, mock_llm, mock_pipeline_svc, mock_send_msg, db
+    ):
+        _, run = self._make_pipeline_run(db)
+        run_id = run.id
+        from_number = "whatsapp:+18003333333"
+        whatsapp_service._active_conversations[from_number] = run_id
+
+        # LLM provider raises an unexpected error
+        mock_llm.side_effect = RuntimeError("LLM provider unavailable")
+
+        with patch("app.services.whatsapp_service.SessionLocal", return_value=db):
+            asyncio.run(whatsapp_service.run_pipeline_async(run_id, from_number))
+
+        # Pipeline run should be marked as failed in DB -- re-query to avoid
+        # stale ORM identity-map issues after the background task modified it.
+        db.expire_all()
+        updated_run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+        assert updated_run is not None
+        assert updated_run.status == PipelineStatus.FAILED.value
+        assert "Unexpected error" in updated_run.error_message
+
+        # Error message sent to user
+        mock_send_msg.assert_called_once()
+        assert "unexpected error" in mock_send_msg.call_args[0][1].lower()
+
+        # Conversation cleared
+        assert from_number not in whatsapp_service._active_conversations
+
+    @patch("app.services.whatsapp_service.send_whatsapp_message")
+    def test_pipeline_run_not_found(self, mock_send_msg, db):
+        from_number = "whatsapp:+18004444444"
+        whatsapp_service._active_conversations[from_number] = 99999
+
+        with patch("app.services.whatsapp_service.SessionLocal", return_value=db):
+            asyncio.run(whatsapp_service.run_pipeline_async(99999, from_number))
+
+        # Error message sent
+        mock_send_msg.assert_called_once()
+        assert "something went wrong" in mock_send_msg.call_args[0][1].lower()
+
+        # Conversation cleared
+        assert from_number not in whatsapp_service._active_conversations
