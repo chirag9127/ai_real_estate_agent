@@ -74,6 +74,9 @@ export default function SearchResultsPage() {
                   ${listing.price?.toLocaleString() ?? 'N/A'}
                 </span>
                 <span className="opacity-70 uppercase text-[10px]">{listing.address}</span>
+                {listing.source && (
+                  <span className="opacity-40 uppercase text-[9px]">via {listing.source}</span>
+                )}
               </div>
               <div className="px-6 py-3">
                 <span
@@ -87,9 +90,9 @@ export default function SearchResultsPage() {
                 {listing.sqft ? ` / ${listing.sqft.toLocaleString()} SQFT` : ''}
               </div>
               <div className="px-6 py-3 text-right">
-                {listing.zillow_url ? (
+                {listing.listing_url ? (
                   <a
-                    href={listing.zillow_url}
+                    href={listing.listing_url}
                     target="_blank"
                     rel="noreferrer"
                     className="hover:opacity-60 transition-opacity"

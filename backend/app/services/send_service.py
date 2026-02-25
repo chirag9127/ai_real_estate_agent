@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 from datetime import datetime, timezone
 
@@ -42,24 +43,26 @@ def _build_listing_html(rr: RankedResult) -> str:
 
     score_pct = round((rr.overall_score or 0) * 100)
 
-    zillow_link = ""
-    if listing.zillow_url:
-        zillow_link = f' &middot; <a href="{listing.zillow_url}" style="color:#ff5e25;">View on Zillow</a>'
+    source_link = ""
+    if listing.listing_url:
+        source_label = html.escape(listing.source.title()) if listing.source else "Listing"
+        safe_url = html.escape(listing.listing_url, quote=True)
+        source_link = f' &middot; <a href="{safe_url}" style="color:#ff5e25;">View on {source_label}</a>'
 
     desc_html = ""
     if listing.description and len(listing.description) > 50:
         truncated = listing.description[:200] + ("..." if len(listing.description) > 200 else "")
-        desc_html = f'<div style="color:#888;font-size:13px;margin-top:6px;">{truncated}</div>'
+        desc_html = f'<div style="color:#888;font-size:13px;margin-top:6px;">{html.escape(truncated)}</div>'
 
     return f"""
     <tr>
       <td style="padding:16px 20px;border-bottom:1px solid #e5e5e5;">
-        <div style="font-size:16px;font-weight:bold;margin-bottom:4px;">{listing.address or "Address N/A"}</div>
+        <div style="font-size:16px;font-weight:bold;margin-bottom:4px;">{html.escape(listing.address) if listing.address else "Address N/A"}</div>
         <div style="color:#666;font-size:14px;">{price} &middot; {details_str}</div>
         {desc_html}
         <div style="margin-top:8px;font-size:13px;">
           <span style="color:#4f9664;font-weight:bold;">Match: {score_pct}%</span>
-          {zillow_link}
+          {source_link}
         </div>
       </td>
     </tr>"""

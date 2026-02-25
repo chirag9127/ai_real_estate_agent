@@ -1,7 +1,8 @@
-"""Property search service using Zillow RapidAPI."""
+"""Property search service using multiple real estate scrapers."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -11,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.models.listing import Listing
 from app.models.requirement import ExtractedRequirement
-from app.services.zillow_client import ZillowAPIError, ZillowClient
+from app.services.scrapers.base_scraper import BaseScraper, ScraperError
+from app.services.scrapers.registry import ScraperRegistry
 from app.utils.exceptions import RequirementNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -94,33 +96,46 @@ def _map_zillow_prop_to_listing(
         full_address = str(addr) if addr else ""
         neighborhood = ""
 
-    # Price — prefer numeric unformattedPrice
+    # Price -- prefer numeric unformattedPrice
     price = prop.get("unformattedPrice")
     if price is None:
         price = _parse_int_from_string(prop.get("price"))
 
-    # Beds / baths
-    beds = prop.get("beds") or prop.get("bedrooms")
-    baths = prop.get("baths") or prop.get("bathrooms")
+    # Beds / baths -- use None-safe fallback to preserve 0 (studios)
+    beds = prop.get("beds")
+    if beds is None:
+        beds = prop.get("bedrooms")
+    baths = prop.get("baths")
+    if baths is None:
+        baths = prop.get("bathrooms")
 
-    # Square footage — may be string like "1,010 sqft"
-    sqft = _parse_int_from_string(prop.get("livingArea") or prop.get("area"))
+    # Square footage -- may be string like "1,010 sqft"
+    living_area = prop.get("livingArea")
+    if living_area is None:
+        living_area = prop.get("area")
+    sqft = _parse_int_from_string(living_area)
 
-    # Days on market — may be string like "1 day"
+    # Days on market -- may be string like "1 day"
     days = _parse_int_from_string(prop.get("daysOnZillow"))
 
-    # Coordinates
+    # Coordinates -- use None-safe fallback to preserve 0.0
     lat_long = prop.get("latLong") or {}
-    latitude = lat_long.get("latitude") or prop.get("latitude")
-    longitude = lat_long.get("longitude") or prop.get("longitude")
+    latitude = lat_long.get("latitude")
+    if latitude is None:
+        latitude = prop.get("latitude")
+    longitude = lat_long.get("longitude")
+    if longitude is None:
+        longitude = prop.get("longitude")
 
-    # Zillow URL — may be relative
+    # Listing URL -- may be relative
     detail_url = prop.get("detailUrl") or ""
     if detail_url and not detail_url.startswith("http"):
         detail_url = f"https://www.zillow.com{detail_url}"
 
     # External ID
-    ext_id = prop.get("id") or prop.get("zpid")
+    ext_id = prop.get("id")
+    if ext_id is None:
+        ext_id = prop.get("zpid")
 
     # Home type
     home_type = prop.get("homeType", "")
@@ -131,6 +146,7 @@ def _map_zillow_prop_to_listing(
         external_id=str(ext_id) if ext_id else None,
         pipeline_run_id=pipeline_run_id,
         requirement_id=requirement_id,
+        source=prop.get("source", "Zillow"),
         address=full_address,
         price=price,
         bedrooms=int(beds) if beds is not None else None,
@@ -144,7 +160,54 @@ def _map_zillow_prop_to_listing(
         days_on_market=days,
         latitude=latitude,
         longitude=longitude,
-        zillow_url=detail_url or None,
+        listing_url=detail_url or None,
+        data_json=json.dumps(prop),
+    )
+
+
+def _map_generic_prop_to_listing(
+    prop: dict[str, Any],
+    pipeline_run_id: int | None,
+    requirement_id: int,
+) -> Listing:
+    """Transform a normalized property dict from any scraper into a Listing ORM object.
+
+    All non-Zillow scrapers return a standardized dict with keys:
+    id, source, address, price, bedrooms, bathrooms, sqft, property_type,
+    description, image_url, listing_url, latitude, longitude, neighborhood,
+    days_on_market, year_built.
+    """
+    # Parse price if it's a string
+    price = prop.get("price")
+    if isinstance(price, str):
+        try:
+            price = float(price.replace("$", "").replace(",", "").strip())
+        except (ValueError, AttributeError):
+            price = None
+
+    # Parse beds/baths
+    beds = prop.get("bedrooms")
+    baths = prop.get("bathrooms")
+
+    return Listing(
+        external_id=str(prop.get("id", "")) or None,
+        pipeline_run_id=pipeline_run_id,
+        requirement_id=requirement_id,
+        source=prop.get("source", ""),
+        address=prop.get("address", ""),
+        price=float(price) if price is not None else None,
+        bedrooms=int(beds) if beds is not None else None,
+        bathrooms=float(baths) if baths is not None else None,
+        sqft=_parse_int_from_string(prop.get("sqft")),
+        property_type=prop.get("property_type") or None,
+        description=prop.get("description", ""),
+        neighborhood=prop.get("neighborhood", ""),
+        image_url=prop.get("image_url") or None,
+        year_built=prop.get("year_built"),
+        days_on_market=_parse_int_from_string(prop.get("days_on_market")),
+        latitude=prop.get("latitude"),
+        longitude=prop.get("longitude"),
+        listing_url=prop.get("listing_url") or None,
         data_json=json.dumps(prop),
     )
 
@@ -160,6 +223,7 @@ def _create_mock_listings(
         listing = Listing(
             pipeline_run_id=pipeline_run_id,
             requirement_id=requirement_id,
+            source="mock",
             **mock,
         )
         db.add(listing)
@@ -170,19 +234,55 @@ def _create_mock_listings(
     return listings
 
 
+async def _run_scraper(
+    scraper: BaseScraper,
+    source_name: str,
+    location: str,
+    *,
+    max_price: int | None = None,
+    beds_min: int | None = None,
+    baths_min: int | None = None,
+    sqft_min: int | None = None,
+) -> list[dict[str, Any]]:
+    """Run a single scraper, catching and logging errors."""
+    try:
+        results = await scraper.search(
+            location,
+            max_price=max_price,
+            beds_min=beds_min,
+            baths_min=baths_min,
+            sqft_min=sqft_min,
+        )
+        logger.info(
+            "%s returned %d results for '%s'",
+            source_name, len(results), location,
+        )
+        return results
+    except ScraperError as e:
+        logger.error("%s search failed for '%s': %s", source_name, location, e)
+        return []
+    except Exception as e:
+        logger.error(
+            "Unexpected error from %s for '%s': %s",
+            source_name, location, e, exc_info=True,
+        )
+        return []
+
+
 async def search_listings(
     db: Session,
     requirement_id: int,
     pipeline_run_id: int | None = None,
 ) -> list[Listing]:
     """
-    Search for listings matching the given requirement.
+    Search for listings matching the given requirement across all scrapers.
 
     1. Loads the ExtractedRequirement from DB
-    2. For each location, calls Zillow search_by_url
-    3. Maps results to Listing ORM objects and persists them
-    4. Returns the list of created Listing objects
-    5. Falls back to mock data if API is unavailable
+    2. Initializes all available scrapers via the registry
+    3. For each location, runs all scrapers concurrently
+    4. Maps results to Listing ORM objects and persists them
+    5. Returns the list of created Listing objects
+    6. Falls back to mock data if no scrapers return results
     """
     requirement = (
         db.query(ExtractedRequirement)
@@ -196,51 +296,71 @@ async def search_listings(
 
     locations = requirement.locations_list
     if not locations:
-        logger.warning("No locations for requirement %s, using broad fallback", requirement_id)
+        logger.warning(
+            "No locations for requirement %s, using broad fallback",
+            requirement_id,
+        )
         locations = ["United States"]
+
+    # Get all available scrapers
+    scrapers = ScraperRegistry.get_all_scrapers()
+    if not scrapers:
+        logger.warning("No scrapers available, falling back to mock data")
+        return _create_mock_listings(db, pipeline_run_id, requirement_id)
+
+    logger.info(
+        "Running %d scrapers for %d locations: %s",
+        len(scrapers),
+        len(locations),
+        [name for name, _ in scrapers],
+    )
 
     all_listings: list[Listing] = []
 
-    try:
-        client = ZillowClient()
-
-        for location in locations:
-            logger.info(
-                "Searching Zillow: location=%s, max_price=%s, beds=%s, baths=%s, sqft=%s",
-                location, max_price, requirement.min_beds, requirement.min_baths, requirement.min_sqft,
+    for location in locations:
+        # Run all scrapers concurrently for this location
+        tasks = [
+            _run_scraper(
+                scraper,
+                source_name,
+                location,
+                max_price=max_price,
+                beds_min=requirement.min_beds if requirement.min_beds else None,
+                baths_min=requirement.min_baths if requirement.min_baths else None,
+                sqft_min=requirement.min_sqft if requirement.min_sqft else None,
             )
-            try:
-                results = await client.search_by_url(
-                    location=location,
-                    max_price=max_price,
-                    beds_min=requirement.min_beds if requirement.min_beds else None,
-                    baths_min=requirement.min_baths if requirement.min_baths else None,
-                    sqft_min=requirement.min_sqft if requirement.min_sqft else None,
-                )
-            except ZillowAPIError as e:
-                logger.error("Zillow search failed for location %s: %s", location, e)
-                continue
+            for source_name, scraper in scrapers
+        ]
+        results_per_scraper = await asyncio.gather(*tasks)
 
+        for (source_name, _scraper), results in zip(scrapers, results_per_scraper):
             for prop in results:
-                listing = _map_zillow_prop_to_listing(
-                    prop,
-                    pipeline_run_id=pipeline_run_id,
-                    requirement_id=requirement_id,
-                )
+                # Use Zillow-specific mapper for Zillow results (different format)
+                if source_name == "Zillow":
+                    listing = _map_zillow_prop_to_listing(
+                        prop,
+                        pipeline_run_id=pipeline_run_id,
+                        requirement_id=requirement_id,
+                    )
+                else:
+                    listing = _map_generic_prop_to_listing(
+                        prop,
+                        pipeline_run_id=pipeline_run_id,
+                        requirement_id=requirement_id,
+                    )
                 db.add(listing)
                 all_listings.append(listing)
 
-        if all_listings:
-            db.commit()
-            for listing in all_listings:
-                db.refresh(listing)
-        else:
-            logger.warning("No Zillow results, falling back to mock data")
-            all_listings = _create_mock_listings(db, pipeline_run_id, requirement_id)
-
-    except ZillowAPIError as e:
-        logger.error("Zillow client init failed: %s — falling back to mock data", e)
+    if all_listings:
+        db.commit()
+        for listing in all_listings:
+            db.refresh(listing)
+    else:
+        logger.warning("No results from any scraper, falling back to mock data")
         all_listings = _create_mock_listings(db, pipeline_run_id, requirement_id)
 
-    logger.info("Search complete: %d listings for requirement %s", len(all_listings), requirement_id)
+    logger.info(
+        "Search complete: %d listings for requirement %s",
+        len(all_listings), requirement_id,
+    )
     return all_listings

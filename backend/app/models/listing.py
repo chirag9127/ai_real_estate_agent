@@ -10,7 +10,7 @@ from app.database import Base
 
 
 class Listing(Base):
-    """Property listing, populated by Zillow API or mock data."""
+    """Property listing populated by one or more real-estate scrapers."""
 
     __tablename__ = "listings"
 
@@ -22,6 +22,7 @@ class Listing(Base):
     requirement_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("extracted_requirements.id"), nullable=True, index=True
     )
+    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     bedrooms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -35,6 +36,6 @@ class Listing(Base):
     days_on_market: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    zillow_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    listing_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     data_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

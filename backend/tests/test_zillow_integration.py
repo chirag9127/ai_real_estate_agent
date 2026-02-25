@@ -14,14 +14,17 @@ import pytest
 # Ensure the backend package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.services.zillow_client import (  # noqa: E402
-    ZillowAPIError,
-    ZillowClient,
+from app.services.scrapers.zillow_scraper import (  # noqa: E402
+    ZillowScraper,
     _geocode_location,
     _location_to_zillow_slug,
     build_zillow_search_url,
 )
+from app.services.scrapers.base_scraper import ScraperError  # noqa: E402
 from app.services.search_service import _map_zillow_prop_to_listing, _parse_int_from_string  # noqa: E402
+
+# Backward compatibility alias used in tests
+ZillowAPIError = ScraperError
 
 
 # ---------------------------------------------------------------------------
@@ -146,9 +149,9 @@ class TestMapZillowPropToListing:
         listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
         assert listing.image_url == "https://photos.zillowstatic.com/example.jpg"
 
-    def test_zillow_url_relative(self):
+    def test_listing_url_relative(self):
         listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
-        assert listing.zillow_url.startswith("https://www.zillow.com/homedetails/")
+        assert listing.listing_url.startswith("https://www.zillow.com/homedetails/")
 
     def test_days_on_market(self):
         listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
@@ -171,9 +174,13 @@ class TestMapZillowPropToListing:
         listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
         assert listing.neighborhood == "Chicago"
 
+    def test_source_is_zillow(self):
+        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        assert listing.source == "Zillow"
+
 
 # ---------------------------------------------------------------------------
-# Integration tests — require RAPIDAPI_KEY to be set
+# Integration tests -- require RAPIDAPI_KEY to be set
 # ---------------------------------------------------------------------------
 
 def _has_api_key() -> bool:
@@ -183,7 +190,7 @@ def _has_api_key() -> bool:
 
 requires_api_key = pytest.mark.skipif(
     not _has_api_key(),
-    reason="RAPIDAPI_KEY not set — skipping live API tests",
+    reason="RAPIDAPI_KEY not set -- skipping live API tests",
 )
 
 
@@ -221,13 +228,13 @@ class TestGeocode:
 
 @requires_api_key
 class TestZillowClientIntegration:
-    """Live API tests — these make real HTTP calls and cost API credits."""
+    """Live API tests -- these make real HTTP calls and cost API credits."""
 
     @pytest.mark.asyncio
     async def test_search_new_york(self):
         """Basic search for New York should return results."""
-        client = ZillowClient()
-        results = await client.search_by_url("New York, NY")
+        client = ZillowScraper()
+        results = await client.search("New York, NY")
         assert isinstance(results, list)
         assert len(results) > 0, "Expected at least 1 result for New York, NY"
 
@@ -239,8 +246,8 @@ class TestZillowClientIntegration:
     @pytest.mark.asyncio
     async def test_search_with_price_filter(self):
         """Search with a max price should return results."""
-        client = ZillowClient()
-        results = await client.search_by_url(
+        client = ZillowScraper()
+        results = await client.search(
             "Chicago, IL",
             max_price=300000,
         )
@@ -250,8 +257,8 @@ class TestZillowClientIntegration:
     @pytest.mark.asyncio
     async def test_search_with_beds_filter(self):
         """Search with bed minimum should return results."""
-        client = ZillowClient()
-        results = await client.search_by_url(
+        client = ZillowScraper()
+        results = await client.search(
             "Los Angeles, CA",
             beds_min=3,
         )
@@ -261,8 +268,8 @@ class TestZillowClientIntegration:
     @pytest.mark.asyncio
     async def test_search_with_all_filters(self):
         """Search with multiple filters combined."""
-        client = ZillowClient()
-        results = await client.search_by_url(
+        client = ZillowScraper()
+        results = await client.search(
             "Miami, FL",
             max_price=500000,
             beds_min=2,
@@ -274,8 +281,8 @@ class TestZillowClientIntegration:
     @pytest.mark.asyncio
     async def test_result_has_expected_fields(self):
         """Verify the response contains the fields we need for mapping."""
-        client = ZillowClient()
-        results = await client.search_by_url("New York, NY")
+        client = ZillowScraper()
+        results = await client.search("New York, NY")
         assert len(results) > 0
 
         prop = results[0]
@@ -287,8 +294,8 @@ class TestZillowClientIntegration:
     @pytest.mark.asyncio
     async def test_full_mapping_with_live_data(self):
         """Fetch live data and verify it maps to a Listing without errors."""
-        client = ZillowClient()
-        results = await client.search_by_url("New York, NY")
+        client = ZillowScraper()
+        results = await client.search("New York, NY")
         assert len(results) > 0
 
         listing = _map_zillow_prop_to_listing(results[0], pipeline_run_id=None, requirement_id=1)
@@ -298,7 +305,7 @@ class TestZillowClientIntegration:
     @pytest.mark.asyncio
     async def test_page_2(self):
         """Pagination should work."""
-        client = ZillowClient()
-        results = await client.search_by_url("New York, NY", page=2)
+        client = ZillowScraper()
+        results = await client.search("New York, NY", page=2)
         assert isinstance(results, list)
         # Page 2 may or may not have results, but shouldn't error
