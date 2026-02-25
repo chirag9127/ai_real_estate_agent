@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from app.services.scrapers.base_scraper import BaseScraper
+from app.services.scrapers.base_scraper import BaseScraper, ScraperError
 from app.services.scrapers.condos_ca_scraper import CondosCaScraper
 from app.services.scrapers.housesigma_scraper import HouseSigmaScraper
 from app.services.scrapers.property_ca_scraper import PropertyCaScraper
@@ -55,37 +55,39 @@ class ScraperRegistry:
         return scraper_class()
 
     @classmethod
-    def get_all_scrapers(cls) -> dict[str, BaseScraper]:
+    def get_all_scrapers(cls) -> list[tuple[str, BaseScraper]]:
         """
-        Get instances of all registered scrapers.
+        Get instances of all registered scrapers that can be initialized.
 
-        Returns:
-            Dict mapping source names to scraper instances.
+        Returns a list of (name, scraper) tuples, skipping scrapers that
+        fail to initialize (e.g., missing API keys).
         """
-        return {name: scraper_class() for name, scraper_class in cls._scrapers.items()}
+        scrapers: list[tuple[str, BaseScraper]] = []
+        for name, scraper_class in cls._scrapers.items():
+            try:
+                scrapers.append((name, scraper_class()))
+            except (ScraperError, Exception) as e:
+                logger.warning(
+                    "Skipping scraper %s: initialization failed: %s",
+                    name, e,
+                )
+        return scrapers
 
     @classmethod
     def list_sources(cls) -> list[str]:
-        """
-        List all available scraper sources.
-
-        Returns:
-            List of source names.
-        """
+        """List all available scraper source names."""
         return list(cls._scrapers.keys())
 
     @classmethod
-    def register_scraper(cls, source_name: str, scraper_class: Type[BaseScraper]) -> None:
-        """
-        Register a new scraper.
-
-        Args:
-            source_name: Name of the scraper source
-            scraper_class: Scraper class (must be a subclass of BaseScraper)
-        """
+    def register_scraper(
+        cls, source_name: str, scraper_class: Type[BaseScraper]
+    ) -> None:
+        """Register a new scraper class."""
         if not issubclass(scraper_class, BaseScraper):
             raise TypeError(
                 f"{scraper_class.__name__} must be a subclass of BaseScraper"
             )
         cls._scrapers[source_name] = scraper_class
-        logger.info("Registered scraper: %s -> %s", source_name, scraper_class.__name__)
+        logger.info(
+            "Registered scraper: %s -> %s", source_name, scraper_class.__name__
+        )

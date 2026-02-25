@@ -1,12 +1,13 @@
 """Condos.ca scraper for Canadian condo real estate data.
 
 Condos.ca specializes in condo properties across Canada.
-This scraper attempts to access their public search interface.
+This scraper uses their internal API endpoints to fetch listings.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -14,6 +15,41 @@ import httpx
 from app.services.scrapers.base_scraper import BaseScraper, ScraperError
 
 logger = logging.getLogger(__name__)
+
+# Condos.ca internal search API
+_CONDOS_CA_API_URL = "https://condos.ca/api/listings"
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://condos.ca/",
+}
+
+
+def _location_to_condos_slug(location: str) -> str:
+    """Convert a location string to a Condos.ca-compatible slug.
+
+    Examples:
+        "Toronto, ON" -> "toronto"
+        "Vancouver, BC" -> "vancouver"
+    """
+    slug = location.lower().strip()
+    # Strip province suffixes
+    for suffix in [", on", ", ontario", ", bc", ", british columbia",
+                   ", ab", ", alberta", ", qc", ", quebec"]:
+        if slug.endswith(suffix):
+            slug = slug[: -len(suffix)].strip()
+            break
+    slug = slug.replace(".", "")
+    slug = re.sub(r"[,]+", " ", slug)
+    slug = re.sub(r"\s+", "-", slug).strip("-")
+    slug = re.sub(r"[^a-z0-9-]", "", slug)
+    return slug
 
 
 class CondosCaScraper(BaseScraper):
@@ -24,7 +60,7 @@ class CondosCaScraper(BaseScraper):
     def __init__(self, timeout: float = 30.0) -> None:
         super().__init__()
         self._timeout = timeout
-        self._base_url = "https://www.condos.ca"
+        self._base_url = "https://condos.ca"
 
     async def search(
         self,
@@ -37,27 +73,125 @@ class CondosCaScraper(BaseScraper):
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """
-        Search Condos.ca for condo properties.
-
-        Condos.ca focuses on condominium listings in Canada.
+        Search Condos.ca for condo properties via their internal API.
 
         Args:
             location: Canadian city or condo project area
+            max_price: Maximum price filter
+            beds_min: Minimum bedrooms
+            baths_min: Minimum bathrooms
+            sqft_min: Minimum square footage
+            **kwargs: Additional parameters
 
         Returns:
-            List of property dicts.
+            List of normalized property dicts.
         """
         logger.info(
             "Searching Condos.ca: location=%s, max_price=%s, beds=%s, baths=%s",
-            location,
-            max_price,
-            beds_min,
-            baths_min,
+            location, max_price, beds_min, baths_min,
         )
 
-        # Condos.ca requires browser automation
-        logger.warning(
-            "Condos.ca search not yet implemented. "
-            "Requires browser automation or API key."
+        slug = _location_to_condos_slug(location)
+
+        params: dict[str, Any] = {
+            "city": slug,
+            "sale_type": "sale",
+            "page": kwargs.get("page", 1),
+            "per_page": 40,
+        }
+
+        if max_price is not None:
+            params["max_price"] = max_price
+        if beds_min is not None:
+            params["min_beds"] = beds_min
+        if baths_min is not None:
+            params["min_baths"] = baths_min
+        if sqft_min is not None:
+            params["min_sqft"] = sqft_min
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout,
+                headers=_HEADERS,
+            ) as client:
+                response = await client.get(
+                    _CONDOS_CA_API_URL,
+                    params=params,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "Condos.ca HTTP error: %s -- %s",
+                e.response.status_code,
+                e.response.text[:200],
+            )
+            raise ScraperError(
+                f"Condos.ca returned {e.response.status_code}"
+            ) from e
+        except httpx.RequestError as e:
+            logger.error("Condos.ca request error: %s", e)
+            raise ScraperError(f"Condos.ca request failed: {e}") from e
+
+        raw_listings = data.get("listings", data.get("results", []))
+        if not raw_listings:
+            logger.warning("Condos.ca returned no results for '%s'", location)
+            return []
+
+        results: list[dict[str, Any]] = []
+        for prop in raw_listings:
+            listing_id = prop.get("mlsNumber") or prop.get("id", "")
+            address = prop.get("address", "")
+            if isinstance(address, dict):
+                address_parts = [
+                    address.get("street", ""),
+                    address.get("city", ""),
+                    address.get("province", ""),
+                ]
+                full_address = ", ".join(p for p in address_parts if p)
+                neighborhood = address.get("city", "")
+            else:
+                full_address = str(address) if address else ""
+                neighborhood = prop.get("city", "")
+
+            # Build listing URL
+            detail_slug = prop.get("slug") or prop.get("url", "")
+            if detail_slug and not detail_slug.startswith("http"):
+                listing_url = f"{self._base_url}/{detail_slug.lstrip('/')}"
+            elif detail_slug:
+                listing_url = detail_slug
+            else:
+                listing_url = ""
+
+            # Parse price
+            price = prop.get("price") or prop.get("listPrice")
+            if isinstance(price, str):
+                try:
+                    price = float(price.replace("$", "").replace(",", "").strip())
+                except (ValueError, AttributeError):
+                    price = None
+
+            results.append({
+                "id": str(listing_id),
+                "source": self.SOURCE_NAME,
+                "address": full_address,
+                "price": price,
+                "bedrooms": prop.get("bedrooms") or prop.get("beds"),
+                "bathrooms": prop.get("bathrooms") or prop.get("baths"),
+                "sqft": prop.get("sqft") or prop.get("squareFeet"),
+                "property_type": prop.get("propertyType", "condo"),
+                "description": prop.get("description", ""),
+                "image_url": prop.get("imageUrl") or prop.get("photo", ""),
+                "listing_url": listing_url,
+                "latitude": prop.get("latitude") or prop.get("lat"),
+                "longitude": prop.get("longitude") or prop.get("lng"),
+                "neighborhood": neighborhood,
+                "days_on_market": prop.get("daysOnMarket"),
+            })
+
+        logger.info(
+            "Condos.ca returned %d results for '%s'",
+            len(results), location,
         )
-        return []
+        return results
