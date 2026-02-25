@@ -64,8 +64,14 @@ def build_ranking_user_prompt(
             f"Description: {desc}\n"
         )
 
-    must_have_lines = "\n".join(f"- {mh}" for mh in semantic_must_haves) if semantic_must_haves else "- (none)"
-    nice_to_have_lines = "\n".join(f"- {nth}" for nth in nice_to_haves) if nice_to_haves else "- (none)"
+    must_have_lines = (
+        "\n".join(f"- {mh}" for mh in semantic_must_haves)
+        if semantic_must_haves
+        else "- (none)"
+    )
+    nice_to_have_lines = (
+        "\n".join(f"- {nth}" for nth in nice_to_haves) if nice_to_haves else "- (none)"
+    )
 
     return (
         f"Evaluate the following {len(listings)} listings against these client requirements.\n\n"

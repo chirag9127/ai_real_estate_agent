@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.ranking import RankingResponse, RankingsListResponse
 from app.services.ranking_service import get_rankings_by_pipeline_run
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/rankings")
 

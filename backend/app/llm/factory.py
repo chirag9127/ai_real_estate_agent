@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.config import settings
-from app.llm.base import LLMProvider
+
+if TYPE_CHECKING:
+    from app.llm.base import LLMProvider
 
 _provider_instance: LLMProvider | None = None
 

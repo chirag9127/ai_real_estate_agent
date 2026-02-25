@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.ranking import RankingResponse, RankingsListResponse
 from app.services import review_service
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/review")
 

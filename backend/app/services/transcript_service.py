@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from fastapi import UploadFile
-from sqlalchemy.orm import Session
+from typing import TYPE_CHECKING
 
 from app.models.transcript import Transcript
 from app.utils.exceptions import TranscriptNotFoundError
 from app.utils.file_handling import read_upload_text, save_upload_file, validate_file
+
+if TYPE_CHECKING:
+    from fastapi import UploadFile
+    from sqlalchemy.orm import Session
 
 
 async def create_from_file(db: Session, file: UploadFile) -> Transcript:
@@ -25,7 +28,9 @@ async def create_from_file(db: Session, file: UploadFile) -> Transcript:
     return transcript
 
 
-def create_from_text(db: Session, text: str, client_name: str | None = None) -> Transcript:
+def create_from_text(
+    db: Session, text: str, client_name: str | None = None
+) -> Transcript:
     transcript = Transcript(
         raw_text=text,
         upload_method="paste",

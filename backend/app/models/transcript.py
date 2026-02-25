@@ -16,10 +16,10 @@ class Transcript(Base):
     __tablename__ = "transcripts"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    client_id: Mapped[Optional[int]] = mapped_column(
+    client_id: Mapped[int | None] = mapped_column(
         ForeignKey("clients.id"), nullable=True
     )
-    filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    filename: Mapped[str | None] = mapped_column(String(500), nullable=True)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     upload_method: Mapped[str] = mapped_column(String(20), default="file")
     status: Mapped[str] = mapped_column(String(20), default="uploaded")

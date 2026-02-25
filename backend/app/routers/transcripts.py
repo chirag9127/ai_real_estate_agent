@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.transcript import (
@@ -11,6 +12,9 @@ from app.schemas.transcript import (
 )
 from app.services import transcript_service
 from app.utils.exceptions import TranscriptNotFoundError
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/transcripts")
 
@@ -54,9 +58,7 @@ def get_transcript(
 
 
 @router.delete("/{transcript_id}")
-def delete_transcript(
-    transcript_id: int, db: Session = Depends(get_db)
-) -> dict:
+def delete_transcript(transcript_id: int, db: Session = Depends(get_db)) -> dict:
     try:
         transcript_service.delete_transcript(db, transcript_id)
         return {"message": "Transcript deleted"}

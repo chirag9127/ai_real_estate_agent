@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +19,9 @@ from app.routers import (
     send,
     transcripts,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 @asynccontextmanager
@@ -43,7 +46,9 @@ app.add_middleware(
 
 app.include_router(health.router, prefix=settings.api_prefix, tags=["health"])
 app.include_router(transcripts.router, prefix=settings.api_prefix, tags=["transcripts"])
-app.include_router(requirements.router, prefix=settings.api_prefix, tags=["requirements"])
+app.include_router(
+    requirements.router, prefix=settings.api_prefix, tags=["requirements"]
+)
 app.include_router(pipeline.router, prefix=settings.api_prefix, tags=["pipeline"])
 app.include_router(search.router, prefix=settings.api_prefix, tags=["search"])
 app.include_router(rankings.router, prefix=settings.api_prefix, tags=["rankings"])

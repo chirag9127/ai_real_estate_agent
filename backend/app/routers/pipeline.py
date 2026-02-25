@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.llm.base import LLMProvider
 from app.llm.factory import get_llm_provider
 from app.schemas.pipeline import PipelineRunResponse
 from app.services import pipeline_service
 from app.utils.exceptions import PipelineRunNotFoundError, TranscriptNotFoundError
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.llm.base import LLMProvider
 
 router = APIRouter(prefix="/pipeline")
 
@@ -64,9 +69,7 @@ async def run_ranking(
 
 
 @router.get("/{run_id}", response_model=PipelineRunResponse)
-def get_pipeline_run(
-    run_id: int, db: Session = Depends(get_db)
-) -> PipelineRunResponse:
+def get_pipeline_run(run_id: int, db: Session = Depends(get_db)) -> PipelineRunResponse:
     try:
         run = pipeline_service.get_pipeline_run(db, run_id)
         return PipelineRunResponse.model_validate(run)

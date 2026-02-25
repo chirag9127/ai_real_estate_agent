@@ -5,14 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
-
-from sqlalchemy.orm import Session
+from typing import TYPE_CHECKING, Any
 
 from app.models.listing import Listing
 from app.models.requirement import ExtractedRequirement
 from app.services.zillow_client import ZillowAPIError, ZillowClient
 from app.utils.exceptions import RequirementNotFoundError
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,9 @@ async def search_listings(
 
     locations = requirement.locations_list
     if not locations:
-        logger.warning("No locations for requirement %s, using broad fallback", requirement_id)
+        logger.warning(
+            "No locations for requirement %s, using broad fallback", requirement_id
+        )
         locations = ["United States"]
 
     all_listings: list[Listing] = []
@@ -207,15 +210,19 @@ async def search_listings(
         for location in locations:
             logger.info(
                 "Searching Zillow: location=%s, max_price=%s, beds=%s, baths=%s, sqft=%s",
-                location, max_price, requirement.min_beds, requirement.min_baths, requirement.min_sqft,
+                location,
+                max_price,
+                requirement.min_beds,
+                requirement.min_baths,
+                requirement.min_sqft,
             )
             try:
                 results = await client.search_by_url(
                     location=location,
                     max_price=max_price,
-                    beds_min=requirement.min_beds if requirement.min_beds else None,
-                    baths_min=requirement.min_baths if requirement.min_baths else None,
-                    sqft_min=requirement.min_sqft if requirement.min_sqft else None,
+                    beds_min=requirement.min_beds or None,
+                    baths_min=requirement.min_baths or None,
+                    sqft_min=requirement.min_sqft or None,
                 )
             except ZillowAPIError as e:
                 logger.error("Zillow search failed for location %s: %s", location, e)
@@ -242,5 +249,9 @@ async def search_listings(
         logger.error("Zillow client init failed: %s — falling back to mock data", e)
         all_listings = _create_mock_listings(db, pipeline_run_id, requirement_id)
 
-    logger.info("Search complete: %d listings for requirement %s", len(all_listings), requirement_id)
+    logger.info(
+        "Search complete: %d listings for requirement %s",
+        len(all_listings),
+        requirement_id,
+    )
     return all_listings

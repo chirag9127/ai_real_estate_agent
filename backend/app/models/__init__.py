@@ -7,9 +7,9 @@ from app.models.transcript import Transcript
 
 __all__ = [
     "Client",
-    "Transcript",
     "ExtractedRequirement",
     "Listing",
-    "RankedResult",
     "PipelineRun",
+    "RankedResult",
+    "Transcript",
 ]

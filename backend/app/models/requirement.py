@@ -19,27 +19,27 @@ class ExtractedRequirement(Base):
     transcript_id: Mapped[int] = mapped_column(
         ForeignKey("transcripts.id"), unique=True, nullable=False
     )
-    client_id: Mapped[Optional[int]] = mapped_column(
+    client_id: Mapped[int | None] = mapped_column(
         ForeignKey("clients.id"), nullable=True
     )
 
-    client_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    budget_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    locations: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    must_haves: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    nice_to_haves: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    property_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    min_beds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    min_baths: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    min_sqft: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    school_requirement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    timeline: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    financing_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    client_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    budget_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    locations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    must_haves: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nice_to_haves: Mapped[str | None] = mapped_column(Text, nullable=True)
+    property_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    min_beds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_baths: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_sqft: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    school_requirement: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    timeline: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    financing_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    llm_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    llm_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    raw_llm_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    raw_llm_response: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

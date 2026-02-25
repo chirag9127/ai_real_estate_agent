@@ -39,11 +39,24 @@ class RequirementResponse(BaseModel):
             obj = data
             result = {}
             for field in [
-                "id", "transcript_id", "client_id", "client_name", "budget_max",
-                "property_type", "min_beds", "min_baths", "min_sqft",
-                "school_requirement", "timeline", "financing_type",
-                "confidence_score", "llm_provider", "llm_model", "is_edited",
-                "created_at", "updated_at",
+                "id",
+                "transcript_id",
+                "client_id",
+                "client_name",
+                "budget_max",
+                "property_type",
+                "min_beds",
+                "min_baths",
+                "min_sqft",
+                "school_requirement",
+                "timeline",
+                "financing_type",
+                "confidence_score",
+                "llm_provider",
+                "llm_model",
+                "is_edited",
+                "created_at",
+                "updated_at",
             ]:
                 result[field] = getattr(obj, field, None)
             for field in ["locations", "must_haves", "nice_to_haves"]:

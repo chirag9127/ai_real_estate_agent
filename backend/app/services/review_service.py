@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-
-from sqlalchemy.orm import Session
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from app.models.pipeline_run import PipelineRun
 from app.models.ranking import RankedResult
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ def approve_listings(
         db.query(PipelineRun).filter(PipelineRun.id == pipeline_run_id).first()
     )
     if pipeline_run:
-        pipeline_run.review_completed_at = datetime.now(timezone.utc)
+        pipeline_run.review_completed_at = datetime.now(UTC)
 
     db.commit()
     for rr in all_rankings:
@@ -72,7 +74,9 @@ def reject_listing(db: Session, pipeline_run_id: int, ranking_id: int) -> Ranked
         .first()
     )
     if not rr:
-        raise ValueError(f"Ranking {ranking_id} not found for pipeline run {pipeline_run_id}")
+        raise ValueError(
+            f"Ranking {ranking_id} not found for pipeline run {pipeline_run_id}"
+        )
 
     rr.approved_by_harry = False
     db.commit()
