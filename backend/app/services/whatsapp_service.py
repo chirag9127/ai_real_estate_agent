@@ -195,9 +195,9 @@ def schedule_pipeline(pipeline_run_id: int, from_number: str) -> None:
     """Schedule the async pipeline to run in the current event loop.
 
     Called from the webhook handler after the TwiML response is prepared.
+    Must be called from within an async context (e.g. a FastAPI handler).
     """
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_pipeline_async(pipeline_run_id, from_number))
+    asyncio.create_task(run_pipeline_async(pipeline_run_id, from_number))
 
 
 def get_pipeline_status_message(db: Session, from_number: str) -> str | None:

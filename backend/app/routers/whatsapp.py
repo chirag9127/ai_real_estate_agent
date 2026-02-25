@@ -33,6 +33,7 @@ def _validate_twilio_signature(request: Request, form: dict[str, str]) -> bool:
     """
     if not settings.twilio_auth_token:
         # No auth token configured -- skip validation (dev mode)
+        logger.debug("Twilio auth token not configured -- skipping signature validation")
         return True
 
     signature = request.headers.get("X-Twilio-Signature", "")
