@@ -46,6 +46,7 @@ export default function Sidebar() {
       <nav className="flex flex-col">
         <NavItem to="/" label="Dashboard" end />
         <NavItem to="/upload" label="Upload" />
+        <NavItem to="/whatsapp" label="WhatsApp" />
       </nav>
 
       <div className="mt-auto p-6 border-t border-ink text-[10px] uppercase flex justify-between">
