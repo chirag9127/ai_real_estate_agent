@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getSearchResults } from '../api/search';
-import type { Listing } from '../types/listing';
-import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorAlert from '../components/common/ErrorAlert';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import type { Listing } from '../types/listing';
 
 export default function SearchResultsPage() {
   const { runId } = useParams();
@@ -23,7 +23,7 @@ export default function SearchResultsPage() {
         setLoading(false);
       }
     }
-    load();
+    void load();
   }, [runId]);
 
   if (loading) return <LoadingSpinner />;
@@ -55,8 +55,8 @@ export default function SearchResultsPage() {
               key={listing.id}
               className="grid grid-cols-[80px_2fr_1fr_1fr_40px] border-b border-ink items-center transition-colors"
               style={{ background: hovered === listing.id ? 'rgba(255,255,255,0.4)' : 'transparent' }}
-              onMouseEnter={() => setHovered(listing.id)}
-              onMouseLeave={() => setHovered(null)}
+              onMouseEnter={() => { setHovered(listing.id); }}
+              onMouseLeave={() => { setHovered(null); }}
             >
               {listing.image_url ? (
                 <img
@@ -93,7 +93,7 @@ export default function SearchResultsPage() {
                     target="_blank"
                     rel="noreferrer"
                     className="hover:opacity-60 transition-opacity"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); }}
                   >
                     →
                   </a>

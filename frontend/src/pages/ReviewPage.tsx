@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { getPendingReview, approveListings } from '../api/review';
-import type { RankedListing } from '../types/listing';
-import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorAlert from '../components/common/ErrorAlert';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import type { RankedListing } from '../types/listing';
 
 export default function ReviewPage() {
   const { runId } = useParams();
@@ -33,7 +33,7 @@ export default function ReviewPage() {
         setLoading(false);
       }
     }
-    load();
+    void load();
   }, [runId]);
 
   const toggle = (id: number) => {
@@ -43,15 +43,15 @@ export default function ReviewPage() {
     setSelected(next);
   };
 
-  const selectAll = () => setSelected(new Set(rankings.map((r) => r.id)));
-  const selectNone = () => setSelected(new Set());
+  const selectAll = () => { setSelected(new Set(rankings.map((r) => r.id))); };
+  const selectNone = () => { setSelected(new Set()); };
 
   const handleApprove = async () => {
     setSubmitting(true);
     setError(null);
     try {
       await approveListings(Number(runId), Array.from(selected));
-      navigate(`/pipeline/${runId}/send`);
+      void navigate(`/pipeline/${runId}/send`);
     } catch {
       setError('Failed to submit approval.');
     } finally {
@@ -126,7 +126,7 @@ export default function ReviewPage() {
                   {/* Checkbox */}
                   <div
                     className="px-3 py-4 flex items-center justify-center"
-                    onClick={() => toggle(item.id)}
+                    onClick={() => { toggle(item.id); }}
                   >
                     <div
                       className="w-5 h-5 border border-ink flex items-center justify-center text-[11px] transition-colors"
@@ -142,7 +142,7 @@ export default function ReviewPage() {
                   {/* Rank */}
                   <div
                     className="px-2 py-4 font-heading text-[24px] opacity-30 text-center"
-                    onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                    onClick={() => { setExpandedId(expandedId === item.id ? null : item.id); }}
                   >
                     {item.rank_position}
                   </div>
@@ -150,7 +150,7 @@ export default function ReviewPage() {
                   {/* Address + details */}
                   <div
                     className="px-6 py-4 flex flex-col gap-0.5"
-                    onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                    onClick={() => { setExpandedId(expandedId === item.id ? null : item.id); }}
                   >
                     <span className="font-heading text-[16px] uppercase">
                       {item.listing.address ?? 'Unknown Address'}
@@ -169,7 +169,7 @@ export default function ReviewPage() {
                   {/* Score */}
                   <div
                     className="px-6 py-4"
-                    onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                    onClick={() => { setExpandedId(expandedId === item.id ? null : item.id); }}
                   >
                     <div className="text-[9px] uppercase opacity-50 mb-1">Score</div>
                     <div className="w-full h-[3px] bg-ink/10">
@@ -186,7 +186,7 @@ export default function ReviewPage() {
                   {/* Must-haves */}
                   <div
                     className="px-6 py-4 text-center"
-                    onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                    onClick={() => { setExpandedId(expandedId === item.id ? null : item.id); }}
                   >
                     <div className="text-[9px] uppercase opacity-50 mb-1">Must-Haves</div>
                     <span
@@ -203,7 +203,7 @@ export default function ReviewPage() {
                   {/* Nice-to-have */}
                   <div
                     className="px-6 py-4 text-center"
-                    onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                    onClick={() => { setExpandedId(expandedId === item.id ? null : item.id); }}
                   >
                     <div className="text-[9px] uppercase opacity-50 mb-1">Nice-to-Have</div>
                     <span className="font-heading text-[14px]">
@@ -290,7 +290,7 @@ export default function ReviewPage() {
           {selected.size} listing(s) selected for approval
         </p>
         <button
-          onClick={handleApprove}
+          onClick={() => { void handleApprove(); }}
           disabled={submitting || selected.size === 0}
           className="px-5 py-2.5 bg-accent-green text-ink text-[11px] uppercase tracking-[1px] border border-ink cursor-pointer hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
         >

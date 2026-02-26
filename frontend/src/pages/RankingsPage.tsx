@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getRankings } from '../api/rankings';
-import type { RankedListing } from '../types/listing';
-import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorAlert from '../components/common/ErrorAlert';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import type { RankedListing } from '../types/listing';
 
 export default function RankingsPage() {
   const { runId } = useParams();
@@ -24,7 +24,7 @@ export default function RankingsPage() {
         setLoading(false);
       }
     }
-    load();
+    void load();
   }, [runId]);
 
   if (loading) return <LoadingSpinner />;
@@ -62,9 +62,9 @@ export default function RankingsPage() {
                 style={{
                   background: hovered === item.id ? 'rgba(255,255,255,0.4)' : 'transparent',
                 }}
-                onMouseEnter={() => setHovered(item.id)}
-                onMouseLeave={() => setHovered(null)}
-                onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                onMouseEnter={() => { setHovered(item.id); }}
+                onMouseLeave={() => { setHovered(null); }}
+                onClick={() => { setExpandedId(expandedId === item.id ? null : item.id); }}
               >
                 <div className="px-4 py-4 font-heading text-[24px] opacity-30 text-center">
                   {item.rank_position}

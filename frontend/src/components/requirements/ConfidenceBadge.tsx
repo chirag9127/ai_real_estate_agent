@@ -2,7 +2,7 @@ export default function ConfidenceBadge({ score }: { score: number | null }) {
   if (score === null) return null;
 
   const pct = Math.round(score * 100);
-  const color = score >= 0.8 ? '#4f9664' : score >= 0.5 ? '#ff5e25' : '#ff5e25';
+  const color = score >= 0.8 ? '#4f9664' : '#ff5e25';
 
   return (
     <span
