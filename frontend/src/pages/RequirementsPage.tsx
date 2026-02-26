@@ -229,7 +229,10 @@ function Field({
           className="flex-1 border border-ink bg-transparent px-2 py-1 text-[12px] focus:outline-none focus:ring-1 focus:ring-ink"
         />
       ) : (
-        <span className="font-heading text-[16px]">{value ?? '—'}</span>
+        <span className="font-heading text-[16px]">{
+          // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty string should show placeholder
+          value || '—'
+        }</span>
       )}
     </div>
   );
