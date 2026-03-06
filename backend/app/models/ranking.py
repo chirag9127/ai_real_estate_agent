@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -34,6 +34,8 @@ class RankedResult(Base):
     rank_position: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     score_breakdown_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     approved_by_harry: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    rejection_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sent_to_client: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 

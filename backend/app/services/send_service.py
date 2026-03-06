@@ -4,16 +4,75 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 import resend
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.models.email_send import EmailSend
 from app.models.pipeline_run import PipelineRun
 from app.models.ranking import RankedResult
 from app.models.requirement import ExtractedRequirement
 
 logger = logging.getLogger(__name__)
+
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
+
+AVAILABLE_TEMPLATES = [
+    {
+        "key": "professional",
+        "label": "Professional",
+        "description": "Formal tone with structured layout. Suitable for new or corporate clients.",
+    },
+    {
+        "key": "casual",
+        "label": "Casual",
+        "description": "Friendly, conversational tone. Great for established client relationships.",
+    },
+    {
+        "key": "advisory",
+        "label": "Advisory",
+        "description": "Expert consultative tone with market insights framing.",
+    },
+]
+
+DEFAULT_SUBJECTS: dict[str, str] = {
+    "professional": "Your Curated Property Listings ({listing_count} properties)",
+    "casual": "Found some great places for you! ({listing_count} picks)",
+    "advisory": "Market-Informed Property Recommendations ({listing_count} properties)",
+}
+
+DEFAULT_BODIES: dict[str, str] = {
+    "professional": (
+        "Following our recent conversation, I have identified {listing_count}"
+        " {word} that closely align with your stated requirements."
+        " Please find the details below."
+    ),
+    "casual": (
+        "I just wrapped up a fresh search and found {listing_count} {word}"
+        " that I think you're really going to like. Take a look!"
+    ),
+    "advisory": (
+        "After a thorough review of the current inventory, I've selected"
+        " {listing_count} {word} that offer the best combination of value"
+        " and fit for your criteria."
+    ),
+}
+
+
+def get_email_templates() -> list[dict]:
+    """Return the list of available email templates with keys and descriptions."""
+    return AVAILABLE_TEMPLATES
+
+
+def _load_template(tone: str) -> str:
+    """Load an HTML template file by tone key."""
+    template_path = TEMPLATES_DIR / f"{tone}.html"
+    if not template_path.exists():
+        logger.warning("Template %s not found, falling back to professional", tone)
+        template_path = TEMPLATES_DIR / "professional.html"
+    return template_path.read_text(encoding="utf-8")
 
 
 def _get_approved_rankings(db: Session, pipeline_run_id: int) -> list[RankedResult]:
@@ -68,51 +127,134 @@ def _build_listing_html(rr: RankedResult) -> str:
 def _build_email_html(
     rankings: list[RankedResult],
     client_name: str | None,
-) -> str:
-    greeting = f"Hi {client_name}," if client_name else "Hi,"
-    listing_rows = "\n".join(_build_listing_html(rr) for rr in rankings)
+    tone: str = "professional",
+    subject_override: str | None = None,
+    body_override: str | None = None,
+    agent_name: str = "Harry",
+    locations: str | None = None,
+    agent_phone: str = "",
+    agent_email: str = "",
+    brokerage_name: str = "",
+    brokerage_logo_url: str = "",
+) -> tuple[str, str]:
+    """Build the full email HTML and subject line.
+
+    Returns (html_body, subject_line).
+    """
     count = len(rankings)
     word = "properties" if count != 1 else "property"
+    display_name = client_name or "there"
+    display_locations = locations or "your preferred areas"
 
-    return f"""<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0d0d0d;">
-  <div style="max-width:600px;margin:0 auto;padding:20px;">
-    <div style="border-bottom:2px solid #0d0d0d;padding-bottom:12px;margin-bottom:24px;">
-      <h1 style="margin:0;font-size:20px;text-transform:uppercase;letter-spacing:1px;">
-        Curated Property Listings
-      </h1>
-    </div>
+    # Resolve subject
+    subject_line = subject_override or DEFAULT_SUBJECTS.get(
+        tone, DEFAULT_SUBJECTS["professional"]
+    ).format(listing_count=count, word=word)
 
-    <p style="font-size:14px;line-height:1.6;">{greeting}</p>
-    <p style="font-size:14px;line-height:1.6;">
-      Based on our conversation, I've found {count} {word} that match your requirements.
-      Here are my top picks for you:
-    </p>
+    # Resolve body text
+    body_text = body_override or DEFAULT_BODIES.get(
+        tone, DEFAULT_BODIES["professional"]
+    ).format(listing_count=count, word=word)
 
-    <table style="width:100%;border-collapse:collapse;margin:24px 0;border:1px solid #e5e5e5;">
-      {listing_rows}
-    </table>
+    listing_rows = "\n".join(_build_listing_html(rr) for rr in rankings)
 
-    <p style="font-size:14px;line-height:1.6;">
-      Let me know if any of these catch your eye, or if you'd like to schedule viewings.
-      Happy to adjust the search if your priorities have changed.
-    </p>
+    # Build signature contact details (only include lines with values)
+    sig_phone = f"Phone: {agent_phone}<br>" if agent_phone else ""
+    sig_email = f"Email: {agent_email}<br>" if agent_email else ""
+    sig_brokerage = brokerage_name if brokerage_name else ""
 
-    <p style="font-size:14px;line-height:1.6;margin-top:24px;">
-      Best regards,<br>
-      <strong>Harry</strong>
-    </p>
-  </div>
-</body>
-</html>"""
+    # Build footer branding
+    footer_brokerage = brokerage_name if brokerage_name else ""
+    footer_logo = (
+        f'<br><img src="{brokerage_logo_url}" alt="{brokerage_name}" '
+        f'style="max-height:40px;margin-top:8px;">'
+        if brokerage_logo_url
+        else ""
+    )
+
+    template = _load_template(tone)
+    html = template.format(
+        client_name=display_name,
+        agent_name=agent_name,
+        listing_count=count,
+        listing_rows=listing_rows,
+        subject_line=subject_line,
+        custom_body=body_text,
+        locations=display_locations,
+        agent_phone=sig_phone,
+        agent_email=sig_email,
+        brokerage_name=sig_brokerage,
+        brokerage_logo_url=footer_logo,
+    )
+
+    return html, subject_line
+
+
+def _get_requirement_for_rankings(
+    db: Session, rankings: list[RankedResult]
+) -> ExtractedRequirement | None:
+    """Look up the requirement associated with the first ranked result."""
+    if not rankings:
+        return None
+    first_rr = rankings[0]
+    return (
+        db.query(ExtractedRequirement)
+        .filter(ExtractedRequirement.id == first_rr.requirement_id)
+        .first()
+    )
+
+
+def preview_email(
+    db: Session,
+    pipeline_run_id: int,
+    tone: str = "professional",
+    subject: str | None = None,
+    body: str | None = None,
+    agent_name: str = "Harry",
+    agent_phone: str = "",
+    agent_email: str = "",
+    brokerage_name: str = "",
+) -> dict:
+    """Generate a full HTML preview of the email without sending."""
+    rankings = _get_approved_rankings(db, pipeline_run_id)
+    if not rankings:
+        return {
+            "html": "",
+            "subject": "",
+            "error": "No approved listings to preview.",
+        }
+
+    requirement = _get_requirement_for_rankings(db, rankings)
+    client_name = requirement.client_name if requirement else None
+    locations = requirement.locations if requirement else None
+
+    html_body, subject_line = _build_email_html(
+        rankings,
+        client_name,
+        tone=tone,
+        subject_override=subject,
+        body_override=body,
+        agent_name=agent_name,
+        locations=locations,
+        agent_phone=agent_phone,
+        agent_email=agent_email,
+        brokerage_name=brokerage_name,
+    )
+
+    return {"html": html_body, "subject": subject_line}
 
 
 def send_email(
     db: Session,
     pipeline_run_id: int,
     recipient_email: str,
+    tone: str = "professional",
+    subject_override: str | None = None,
+    body_override: str | None = None,
+    agent_name: str = "Harry",
+    agent_phone: str = "",
+    agent_email: str = "",
+    brokerage_name: str = "",
 ) -> dict:
     """Send approved listings via Resend and update DB records."""
     rankings = _get_approved_rankings(db, pipeline_run_id)
@@ -123,16 +265,22 @@ def send_email(
             "message": "No approved listings to send.",
         }
 
-    # Look up client name from the requirement
-    first_rr = rankings[0]
-    requirement = (
-        db.query(ExtractedRequirement)
-        .filter(ExtractedRequirement.id == first_rr.requirement_id)
-        .first()
-    )
+    requirement = _get_requirement_for_rankings(db, rankings)
     client_name = requirement.client_name if requirement else None
+    locations = requirement.locations if requirement else None
 
-    html_body = _build_email_html(rankings, client_name)
+    html_body, subject_line = _build_email_html(
+        rankings,
+        client_name,
+        tone=tone,
+        subject_override=subject_override,
+        body_override=body_override,
+        agent_name=agent_name,
+        locations=locations,
+        agent_phone=agent_phone,
+        agent_email=agent_email,
+        brokerage_name=brokerage_name,
+    )
     count = len(rankings)
 
     if not settings.resend_api_key:
@@ -143,7 +291,7 @@ def send_email(
             resend.Emails.send({
                 "from": settings.email_from,
                 "to": [recipient_email],
-                "subject": f"Your Curated Property Listings ({count} properties)",
+                "subject": subject_line,
                 "html": html_body,
             })
             logger.info(
@@ -169,6 +317,16 @@ def send_email(
     if pipeline_run:
         pipeline_run.send_completed_at = datetime.now(timezone.utc)
         pipeline_run.current_stage = "send"
+
+    # Record the send in email_sends tracking table
+    email_send = EmailSend(
+        pipeline_run_id=pipeline_run_id,
+        recipient_email=recipient_email,
+        tone=tone,
+        subject=subject_line,
+        status="sent",
+    )
+    db.add(email_send)
 
     db.commit()
 
@@ -201,3 +359,35 @@ def get_send_status(db: Session, pipeline_run_id: int) -> dict:
         "approved_count": total,
         "sent_at": sent_at.isoformat() if sent_at else None,
     }
+
+
+def get_email_history(db: Session, pipeline_run_id: int) -> list[EmailSend]:
+    """Return all email send records for a pipeline run."""
+    return (
+        db.query(EmailSend)
+        .filter(EmailSend.pipeline_run_id == pipeline_run_id)
+        .order_by(EmailSend.sent_at.desc())
+        .all()
+    )
+
+
+VALID_FEEDBACK_VALUES = {
+    "interested",
+    "not_interested",
+    "need_more_info",
+    "scheduled_viewing",
+}
+
+
+def record_feedback(db: Session, send_id: int, feedback: str) -> EmailSend | None:
+    """Record client feedback on a sent email."""
+    email_send = db.query(EmailSend).filter(EmailSend.id == send_id).first()
+    if not email_send:
+        return None
+
+    email_send.client_feedback = feedback
+    email_send.client_feedback_at = datetime.now(timezone.utc)
+    email_send.status = "responded"
+    db.commit()
+    db.refresh(email_send)
+    return email_send

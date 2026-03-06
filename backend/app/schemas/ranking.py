@@ -16,6 +16,8 @@ class RankingResponse(BaseModel):
     rank_position: int | None
     score_breakdown: dict[str, Any] | None = None
     approved_by_harry: bool | None = None
+    rejection_reason: str | None = None
+    rejection_details: str | None = None
     sent_to_client: bool = False
 
     model_config = {"from_attributes": True}

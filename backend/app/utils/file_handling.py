@@ -1,6 +1,9 @@
+import io
 import os
 
 from fastapi import UploadFile
+from PyPDF2 import PdfReader
+from docx import Document
 
 from app.config import settings
 
@@ -16,9 +19,33 @@ def validate_file(file: UploadFile) -> None:
             )
 
 
+def _extract_text_from_pdf(content: bytes) -> str:
+    reader = PdfReader(io.BytesIO(content))
+    pages = [page.extract_text() or "" for page in reader.pages]
+    return "\n".join(pages)
+
+
+def _extract_text_from_docx(content: bytes) -> str:
+    doc = Document(io.BytesIO(content))
+    return "\n".join(paragraph.text for paragraph in doc.paragraphs)
+
+
+def _extract_text_from_txt(content: bytes) -> str:
+    return content.decode("utf-8")
+
+
 async def read_upload_text(file: UploadFile) -> str:
     content = await file.read()
-    return content.decode("utf-8")
+    ext = ""
+    if file.filename:
+        ext = os.path.splitext(file.filename)[1].lower()
+
+    if ext == ".pdf":
+        return _extract_text_from_pdf(content)
+    elif ext in (".docx", ".doc"):
+        return _extract_text_from_docx(content)
+    else:
+        return _extract_text_from_txt(content)
 
 
 async def save_upload_file(file: UploadFile) -> str:

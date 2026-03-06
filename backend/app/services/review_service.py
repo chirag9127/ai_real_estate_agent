@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.pipeline_run import PipelineRun
 from app.models.ranking import RankedResult
+from app.models.rejection import RejectionReason
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,14 @@ def approve_listings(
     return sorted(all_rankings, key=lambda r: r.rank_position or 0)
 
 
-def reject_listing(db: Session, pipeline_run_id: int, ranking_id: int) -> RankedResult:
-    """Mark a single ranking as rejected."""
+def reject_listing(
+    db: Session,
+    pipeline_run_id: int,
+    ranking_id: int,
+    reason: str,
+    details: str | None = None,
+) -> RankedResult:
+    """Mark a single ranking as rejected with a structured reason."""
     rr = (
         db.query(RankedResult)
         .filter(
@@ -75,6 +82,34 @@ def reject_listing(db: Session, pipeline_run_id: int, ranking_id: int) -> Ranked
         raise ValueError(f"Ranking {ranking_id} not found for pipeline run {pipeline_run_id}")
 
     rr.approved_by_harry = False
+    rr.rejection_reason = reason
+    rr.rejection_details = details
+
+    # Create a RejectionReason record for history
+    rejection = RejectionReason(
+        ranked_result_id=ranking_id,
+        pipeline_run_id=pipeline_run_id,
+        reason=reason,
+        details=details,
+    )
+    db.add(rejection)
+
     db.commit()
     db.refresh(rr)
+    logger.info(
+        "Rejected ranking_id=%d (pipeline_run_id=%d) reason=%s",
+        ranking_id,
+        pipeline_run_id,
+        reason,
+    )
     return rr
+
+
+def get_rejections(db: Session, pipeline_run_id: int) -> list[RejectionReason]:
+    """Return all rejection reasons for a pipeline run."""
+    return (
+        db.query(RejectionReason)
+        .filter(RejectionReason.pipeline_run_id == pipeline_run_id)
+        .order_by(RejectionReason.created_at.desc())
+        .all()
+    )

@@ -1,9 +1,30 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getRankings } from '../api/rankings';
-import type { RankedListing } from '../types/listing';
+import { runRanking } from '../api/pipeline';
+import type { RankedListing, WeightAdjustments } from '../types/listing';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorAlert from '../components/common/ErrorAlert';
+
+const BOOST_LABELS: Record<string, string> = {
+  location_weight_boost: 'Location',
+  price_weight_boost: 'Price / Budget',
+  lot_size_weight_boost: 'Lot Size',
+  layout_weight_boost: 'Layout / Rooms',
+  basement_weight_boost: 'Basement',
+};
+
+function getTopBoostReason(adj: WeightAdjustments): string | null {
+  let top: string | null = null;
+  let max = 1.0;
+  for (const [key, value] of Object.entries(adj)) {
+    if (value > max) {
+      max = value;
+      top = BOOST_LABELS[key] ?? key;
+    }
+  }
+  return top;
+}
 
 export default function RankingsPage() {
   const { runId } = useParams();
@@ -12,12 +33,23 @@ export default function RankingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<number | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [scoringMode, setScoringMode] = useState<'strict' | 'flexible'>('strict');
+  const [pendingMode, setPendingMode] = useState<'strict' | 'flexible'>('strict');
+  const [reranking, setReranking] = useState(false);
+  const [learningExpanded, setLearningExpanded] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
         const data = await getRankings(Number(runId));
         setRankings(data.rankings);
+        // Detect current scoring mode from first ranking with a breakdown
+        const first = data.rankings.find((r: RankedListing) => r.score_breakdown);
+        if (first?.score_breakdown?.scoring_mode) {
+          const mode = first.score_breakdown.scoring_mode as 'strict' | 'flexible';
+          setScoringMode(mode);
+          setPendingMode(mode);
+        }
       } catch {
         setError('Failed to load rankings.');
       } finally {
@@ -26,6 +58,21 @@ export default function RankingsPage() {
     }
     load();
   }, [runId]);
+
+  async function handleRerank() {
+    setReranking(true);
+    setError(null);
+    try {
+      await runRanking(Number(runId), pendingMode);
+      const data = await getRankings(Number(runId));
+      setRankings(data.rankings);
+      setScoringMode(pendingMode);
+    } catch {
+      setError('Failed to re-rank listings.');
+    } finally {
+      setReranking(false);
+    }
+  }
 
   if (loading) return <LoadingSpinner />;
   if (error) return <ErrorAlert message={error} />;
@@ -45,7 +92,99 @@ export default function RankingsPage() {
         <p className="text-[10px] uppercase opacity-50 mt-1">
           {rankings.length} properties ranked &middot; {passCount} pass all must-haves &middot; Pipeline Run #{runId}
         </p>
+
+        {/* Scoring mode toggle */}
+        <div className="flex items-center gap-3 mt-3">
+          <span className="text-[10px] uppercase opacity-50">Scoring Mode:</span>
+          <button
+            className="px-3 py-1 border text-[10px] uppercase tracking-[1px] transition-opacity"
+            style={{
+              borderColor: pendingMode === 'strict' ? '#1a1a1a' : '#ccc',
+              backgroundColor: pendingMode === 'strict' ? '#1a1a1a' : 'transparent',
+              color: pendingMode === 'strict' ? '#fff' : '#1a1a1a',
+            }}
+            onClick={() => setPendingMode('strict')}
+          >
+            Strict
+          </button>
+          <button
+            className="px-3 py-1 border text-[10px] uppercase tracking-[1px] transition-opacity"
+            style={{
+              borderColor: pendingMode === 'flexible' ? '#1a1a1a' : '#ccc',
+              backgroundColor: pendingMode === 'flexible' ? '#1a1a1a' : 'transparent',
+              color: pendingMode === 'flexible' ? '#fff' : '#1a1a1a',
+            }}
+            onClick={() => setPendingMode('flexible')}
+          >
+            Flexible
+          </button>
+          {pendingMode !== scoringMode && (
+            <button
+              className="px-3 py-1 bg-ink text-surface text-[10px] uppercase tracking-[1px] hover:opacity-80 transition-opacity disabled:opacity-40"
+              disabled={reranking}
+              onClick={handleRerank}
+            >
+              {reranking ? 'Re-ranking…' : 'Re-rank'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Learning adjustments banner */}
+      {(() => {
+        const first = rankings.find((r) => r.score_breakdown?.weight_adjustments);
+        const adj = first?.score_breakdown?.weight_adjustments;
+        if (!adj) return null;
+        const hasBoost = Object.values(adj).some((v) => v > 1.0);
+        if (!hasBoost) return null;
+        const topReason = getTopBoostReason(adj);
+        return (
+          <div className="border border-ink bg-surface p-4">
+            <div
+              className="flex items-center gap-2 cursor-pointer"
+              onClick={() => setLearningExpanded(!learningExpanded)}
+            >
+              <span className="text-[11px]">&#9889;</span>
+              <span className="text-[10px] uppercase tracking-[1px] opacity-70">
+                Rankings adjusted based on previous rejection patterns
+              </span>
+              {topReason && (
+                <span className="text-[9px] opacity-50 ml-2">
+                  &middot; Top factor: {topReason}
+                </span>
+              )}
+              <span className="text-[9px] ml-auto opacity-40">
+                {learningExpanded ? '▲' : '▼'}
+              </span>
+            </div>
+            {learningExpanded && (
+              <div className="mt-3 space-y-1">
+                {Object.entries(adj).map(([key, value]) => (
+                  <div key={key} className="flex items-center gap-2 text-[10px]">
+                    <span className="uppercase opacity-70 min-w-[120px]">
+                      {BOOST_LABELS[key] ?? key}
+                    </span>
+                    <div className="w-[60px] h-[3px] bg-ink/10 flex-shrink-0">
+                      <div
+                        className="h-full bg-ink transition-all"
+                        style={{ width: `${Math.min(((value - 1.0) / 1.0) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <span className="font-heading w-[40px] text-right">
+                      {value.toFixed(2)}x
+                    </span>
+                    {value > 1.0 && (
+                      <span className="opacity-40">
+                        (+{Math.round((value - 1.0) * 100)}% weight)
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <section className="border border-ink bg-surface">
         <div className="p-6 border-b border-ink font-heading uppercase">Rankings</div>
@@ -79,6 +218,11 @@ export default function RankingsPage() {
                       <> &middot; {item.listing.bedrooms} bed / {item.listing.bathrooms ?? '?'} bath</>
                     )}
                   </span>
+                  {item.listing.mls_number ? (
+                    <span className="text-[9px] uppercase opacity-50">MLS# {item.listing.mls_number}</span>
+                  ) : item.listing.external_id ? (
+                    <span className="text-[9px] uppercase opacity-50">ID# {item.listing.external_id}</span>
+                  ) : null}
                 </div>
                 <div className="px-6 py-4">
                   <div className="text-[9px] uppercase opacity-50 mb-1">Overall</div>
@@ -115,6 +259,34 @@ export default function RankingsPage() {
               {/* Expandable breakdown */}
               {expandedId === item.id && item.score_breakdown && (
                 <div className="border-b border-ink bg-ink/5 px-8 py-4 space-y-4">
+                  {/* Satisfaction summary */}
+                  <div className="flex gap-6">
+                    <div>
+                      <div className="text-[9px] uppercase opacity-50 mb-1 font-heading">
+                        Must-Have Satisfaction
+                      </div>
+                      <span className="font-heading text-[14px]">
+                        {Math.round(item.score_breakdown.must_have_satisfaction * 100)}%
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-[9px] uppercase opacity-50 mb-1 font-heading">
+                        Nice-to-Have Satisfaction
+                      </div>
+                      <span className="font-heading text-[14px]">
+                        {Math.round(item.score_breakdown.nice_to_have_satisfaction * 100)}%
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-[9px] uppercase opacity-50 mb-1 font-heading">
+                        Mode
+                      </div>
+                      <span className="text-[10px] uppercase opacity-70">
+                        {item.score_breakdown.scoring_mode}
+                      </span>
+                    </div>
+                  </div>
+
                   {/* Must-have checks */}
                   <div>
                     <div className="text-[9px] uppercase opacity-50 mb-2 font-heading">

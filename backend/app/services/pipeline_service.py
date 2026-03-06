@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.llm.base import LLMProvider
 from app.models.pipeline_run import PipelineRun, PipelineStage, PipelineStatus
 from app.models.transcript import Transcript
-from app.services import extraction_service, ranking_service, search_service
+from app.services import extraction_service, ranking_service, rejection_learning_service, search_service
 from app.utils.exceptions import PipelineRunNotFoundError, TranscriptNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,11 @@ async def run_search_step(db: Session, run_id: int) -> PipelineRun:
 
 
 async def run_ranking_step(
-    db: Session, run_id: int, llm: LLMProvider
+    db: Session,
+    run_id: int,
+    llm: LLMProvider,
+    scoring_mode: str = "strict",
+    apply_learning: bool = True,
 ) -> PipelineRun:
     """Run just the ranking stage of the pipeline."""
     from app.models.listing import Listing
@@ -117,6 +121,15 @@ async def run_ranking_step(
         db.refresh(pipeline_run)
         return pipeline_run
 
+    # Analyze rejection patterns for weight adjustments
+    weight_adjustments: dict[str, float] | None = None
+    if apply_learning:
+        learning = rejection_learning_service.analyze_rejection_patterns(
+            db, pipeline_run.transcript_id
+        )
+        if learning["total_rejections"] > 0:
+            weight_adjustments = learning["adjustments"]
+
     try:
         await ranking_service.rank_results(
             db=db,
@@ -124,6 +137,8 @@ async def run_ranking_step(
             requirement=requirement,
             listings=listings,
             llm=llm,
+            scoring_mode=scoring_mode,
+            weight_adjustments=weight_adjustments,
         )
         pipeline_run.ranking_completed_at = datetime.now(timezone.utc)
         pipeline_run.current_stage = PipelineStage.REVIEW.value

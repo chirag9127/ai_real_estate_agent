@@ -23,12 +23,18 @@ class Settings(BaseSettings):
 
     upload_dir: str = "./uploads"
     max_file_size_mb: int = 10
-    allowed_extensions: str = ".txt,.pdf,.docx,.doc"
+    allowed_extensions: str = ".txt,.md,.pdf,.docx,.doc"
     cors_origins: str = "http://localhost:5173"
 
     # Zillow API (RapidAPI)
     rapidapi_key: str = ""
     rapidapi_zillow_host: str = "real-estate101.p.rapidapi.com"
+
+    # Google OAuth
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:5173/google/callback"
+    google_scopes: str = "https://www.googleapis.com/auth/documents.readonly https://www.googleapis.com/auth/drive.readonly"
 
     model_config = {"env_file": ".env"}
 

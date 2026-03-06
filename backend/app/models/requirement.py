@@ -37,6 +37,19 @@ class ExtractedRequirement(Base):
     financing_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
+    property_types: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    min_full_baths: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    min_total_baths: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    min_total_parking: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    min_garage_spaces: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    garage_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    basement_required: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    basement_finished: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    basement_separate_entrance: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    basement_legal_suite: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sub_area: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
     llm_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     llm_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     raw_llm_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -60,3 +73,7 @@ class ExtractedRequirement(Base):
     @property
     def nice_to_haves_list(self) -> list[str]:
         return json.loads(self.nice_to_haves) if self.nice_to_haves else []
+
+    @property
+    def property_types_list(self) -> list[str]:
+        return json.loads(self.property_types) if self.property_types else []

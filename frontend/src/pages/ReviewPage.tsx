@@ -1,10 +1,135 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { getPendingReview, approveListings } from '../api/review';
+import { getPendingReview, approveListings, rejectListing } from '../api/review';
 import type { RankedListing } from '../types/listing';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorAlert from '../components/common/ErrorAlert';
 
+/* ------------------------------------------------------------------ */
+/* Rejection reason options                                           */
+/* ------------------------------------------------------------------ */
+const REJECTION_REASONS: { key: string; label: string }[] = [
+  { key: 'location_mismatch', label: 'Location mismatch' },
+  { key: 'overpriced', label: 'Overpriced' },
+  { key: 'lot_too_small', label: 'Lot too small' },
+  { key: 'layout_inefficient', label: 'Layout inefficient' },
+  { key: 'not_enough_light', label: 'Not enough light' },
+  { key: 'basement_issue', label: 'Basement issue' },
+  { key: 'other', label: 'Other' },
+];
+
+/* ------------------------------------------------------------------ */
+/* Rejection Modal                                                    */
+/* ------------------------------------------------------------------ */
+interface RejectionModalProps {
+  listing: RankedListing;
+  onConfirm: (reason: string, details?: string) => void;
+  onCancel: () => void;
+}
+
+function RejectionModal({ listing, onConfirm, onCancel }: RejectionModalProps) {
+  const [reason, setReason] = useState<string>('');
+  const [details, setDetails] = useState('');
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-surface border border-ink w-full max-w-md mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="p-5 border-b border-ink flex items-center justify-between">
+          <h2 className="font-heading text-[16px] uppercase">Reject Listing</h2>
+          <button
+            onClick={onCancel}
+            className="text-[18px] opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
+          >
+            &times;
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 space-y-4">
+          <p className="text-[11px] opacity-70">
+            {listing.listing.address ?? 'Unknown Address'}
+          </p>
+
+          <div className="text-[9px] uppercase opacity-50 font-heading">
+            Select a reason
+          </div>
+
+          <div className="space-y-2">
+            {REJECTION_REASONS.map((r) => (
+              <label
+                key={r.key}
+                className="flex items-center gap-2 cursor-pointer text-[11px] group"
+              >
+                <span
+                  className="w-4 h-4 rounded-full border border-ink flex items-center justify-center flex-shrink-0 transition-colors"
+                  style={{
+                    background: reason === r.key ? '#0d0d0d' : 'transparent',
+                  }}
+                >
+                  {reason === r.key && (
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: '#d4d4d4' }}
+                    />
+                  )}
+                </span>
+                <input
+                  type="radio"
+                  name="rejection-reason"
+                  value={r.key}
+                  checked={reason === r.key}
+                  onChange={() => setReason(r.key)}
+                  className="sr-only"
+                />
+                <span className="uppercase tracking-wide group-hover:opacity-100 opacity-70 transition-opacity">
+                  {r.label}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {reason === 'other' && (
+            <textarea
+              value={details}
+              onChange={(e) => setDetails(e.target.value)}
+              placeholder="Please describe the reason…"
+              rows={3}
+              className="w-full border border-ink bg-transparent px-3 py-2 text-[11px] focus:outline-none focus:border-ink/80 resize-none"
+            />
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t border-ink flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 border border-ink text-[10px] uppercase tracking-[1px] cursor-pointer hover:bg-ink hover:text-surface transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(reason, reason === 'other' ? details : undefined)}
+            disabled={!reason}
+            className="px-4 py-2 bg-[#ff5e25] text-white text-[10px] uppercase tracking-[1px] border border-[#ff5e25] cursor-pointer hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Confirm Rejection
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Review Page                                                        */
+/* ------------------------------------------------------------------ */
 export default function ReviewPage() {
   const { runId } = useParams();
   const navigate = useNavigate();
@@ -14,16 +139,19 @@ export default function ReviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [rejectingItem, setRejectingItem] = useState<RankedListing | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
     async function load() {
       try {
         const data = await getPendingReview(Number(runId));
         setRankings(data.rankings);
-        // Pre-select listings that pass all must-haves
+        setSuggestions(data.suggestions ?? []);
+        // Pre-select listings that pass all must-haves and aren't already rejected
         const passing = new Set(
           data.rankings
-            .filter((r) => r.must_have_pass)
+            .filter((r) => r.must_have_pass && r.rejection_reason === null)
             .map((r) => r.id),
         );
         setSelected(passing);
@@ -43,8 +171,27 @@ export default function ReviewPage() {
     setSelected(next);
   };
 
-  const selectAll = () => setSelected(new Set(rankings.map((r) => r.id)));
+  const selectAll = () =>
+    setSelected(new Set(rankings.filter((r) => !r.rejection_reason).map((r) => r.id)));
   const selectNone = () => setSelected(new Set());
+
+  const handleRejectConfirm = async (reason: string, details?: string) => {
+    if (!rejectingItem) return;
+    setError(null);
+    try {
+      const updated = await rejectListing(Number(runId), rejectingItem.id, reason, details);
+      setRankings((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(rejectingItem.id);
+        return next;
+      });
+    } catch {
+      setError('Failed to reject listing.');
+    } finally {
+      setRejectingItem(null);
+    }
+  };
 
   const handleApprove = async () => {
     setSubmitting(true);
@@ -63,9 +210,20 @@ export default function ReviewPage() {
   if (error && rankings.length === 0) return <ErrorAlert message={error} />;
 
   const passCount = rankings.filter((r) => r.must_have_pass).length;
+  const activeRankings = rankings.filter((r) => !r.rejection_reason);
+  const rejectedRankings = rankings.filter((r) => r.rejection_reason);
 
   return (
     <div className="space-y-6">
+      {/* Rejection modal */}
+      {rejectingItem && (
+        <RejectionModal
+          listing={rejectingItem}
+          onConfirm={handleRejectConfirm}
+          onCancel={() => setRejectingItem(null)}
+        />
+      )}
+
       {/* Header */}
       <div>
         <Link
@@ -83,6 +241,26 @@ export default function ReviewPage() {
 
       {error && <ErrorAlert message={error} />}
 
+      {/* No-approvals suggestions */}
+      {selected.size === 0 && activeRankings.length === 0 && suggestions.length > 0 && (
+        <section className="border border-[#ff5e25]/40 bg-[#ff5e25]/5 p-5 space-y-3">
+          <div className="text-[10px] uppercase tracking-[1px] font-heading opacity-70">
+            All listings rejected &mdash; consider these actions
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {suggestions.map((s) => (
+              <Link
+                key={s}
+                to={`/requirements/${runId}`}
+                className="px-4 py-2 border border-ink text-[10px] uppercase tracking-[1px] hover:bg-ink hover:text-surface transition-colors"
+              >
+                {s}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Bulk actions */}
       <div className="flex items-center gap-3">
         <button
@@ -98,7 +276,7 @@ export default function ReviewPage() {
           Select None
         </button>
         <span className="text-[10px] uppercase opacity-50 ml-auto">
-          {selected.size} of {rankings.length} selected
+          {selected.size} of {activeRankings.length} selected
         </span>
       </div>
 
@@ -107,18 +285,18 @@ export default function ReviewPage() {
         <div className="p-6 border-b border-ink font-heading uppercase">
           Listings for Review
         </div>
-        {rankings.length === 0 ? (
+        {activeRankings.length === 0 ? (
           <div className="p-6 text-center text-[11px] uppercase opacity-50">
             No ranked listings to review.
           </div>
         ) : (
-          rankings.map((item) => {
+          activeRankings.map((item) => {
             const isSelected = selected.has(item.id);
             return (
               <div key={item.id}>
                 {/* Main row */}
                 <div
-                  className="grid grid-cols-[44px_50px_2fr_1fr_1fr_1fr] border-b border-ink/30 items-center transition-colors cursor-pointer"
+                  className="grid grid-cols-[44px_50px_2fr_1fr_1fr_1fr_44px] border-b border-ink/30 items-center transition-colors cursor-pointer"
                   style={{
                     background: isSelected ? 'rgba(79,150,100,0.06)' : 'transparent',
                   }}
@@ -164,6 +342,11 @@ export default function ReviewPage() {
                         <> &middot; {item.listing.sqft.toLocaleString()} sqft</>
                       )}
                     </span>
+                    {item.listing.mls_number ? (
+                      <span className="text-[9px] uppercase opacity-50">MLS# {item.listing.mls_number}</span>
+                    ) : item.listing.external_id ? (
+                      <span className="text-[9px] uppercase opacity-50">ID# {item.listing.external_id}</span>
+                    ) : null}
                   </div>
 
                   {/* Score */}
@@ -209,6 +392,20 @@ export default function ReviewPage() {
                     <span className="font-heading text-[14px]">
                       {Math.round((item.nice_to_have_score ?? 0) * 100)}%
                     </span>
+                  </div>
+
+                  {/* Reject button */}
+                  <div className="px-2 py-4 flex items-center justify-center">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRejectingItem(item);
+                      }}
+                      title="Reject listing"
+                      className="w-7 h-7 flex items-center justify-center border border-ink/30 text-[14px] opacity-40 hover:opacity-100 hover:border-[#ff5e25] hover:text-[#ff5e25] transition-all cursor-pointer"
+                    >
+                      &#10005;
+                    </button>
                   </div>
                 </div>
 
@@ -283,6 +480,44 @@ export default function ReviewPage() {
           })
         )}
       </section>
+
+      {/* Rejected listings section */}
+      {rejectedRankings.length > 0 && (
+        <section className="border border-ink/30 bg-surface opacity-60">
+          <div className="p-6 border-b border-ink/30 font-heading uppercase text-[14px]">
+            Rejected ({rejectedRankings.length})
+          </div>
+          {rejectedRankings.map((item) => {
+            const reasonLabel =
+              REJECTION_REASONS.find((r) => r.key === item.rejection_reason)?.label ??
+              item.rejection_reason;
+            return (
+              <div
+                key={item.id}
+                className="grid grid-cols-[50px_2fr_1fr_1fr] border-b border-ink/20 items-center px-4 py-3"
+              >
+                <div className="font-heading text-[18px] opacity-30 text-center">
+                  {item.rank_position}
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-heading text-[14px] uppercase">
+                    {item.listing.address ?? 'Unknown Address'}
+                  </span>
+                  <span className="text-[10px] opacity-50">
+                    ${item.listing.price?.toLocaleString() ?? 'N/A'}
+                  </span>
+                </div>
+                <div className="text-[10px] uppercase opacity-50">
+                  {reasonLabel}
+                </div>
+                <div className="text-[10px] opacity-40 truncate">
+                  {item.rejection_details ?? ''}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       {/* Footer actions */}
       <div className="flex justify-between items-center">

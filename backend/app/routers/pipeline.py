@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -53,11 +53,15 @@ async def run_search(
 @router.post("/{run_id}/rank", response_model=PipelineRunResponse)
 async def run_ranking(
     run_id: int,
+    scoring_mode: str = Query("strict", pattern="^(strict|flexible)$"),
+    apply_learning: bool = Query(True),
     db: Session = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> PipelineRunResponse:
     try:
-        run = await pipeline_service.run_ranking_step(db, run_id, llm)
+        run = await pipeline_service.run_ranking_step(
+            db, run_id, llm, scoring_mode=scoring_mode, apply_learning=apply_learning
+        )
         return PipelineRunResponse.model_validate(run)
     except PipelineRunNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

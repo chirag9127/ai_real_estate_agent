@@ -48,9 +48,21 @@ async def extract_requirements(
         requirement.must_haves = json.dumps(parsed.must_haves)
         requirement.nice_to_haves = json.dumps(parsed.nice_to_haves)
         requirement.property_type = parsed.property_type
+        requirement.property_types = json.dumps(parsed.property_types)
         requirement.min_beds = parsed.min_beds
         requirement.min_baths = parsed.min_baths
         requirement.min_sqft = parsed.min_sqft
+        requirement.min_full_baths = parsed.min_full_baths
+        requirement.min_total_baths = parsed.min_total_baths
+        requirement.min_total_parking = parsed.min_total_parking
+        requirement.min_garage_spaces = parsed.min_garage_spaces
+        requirement.garage_type = parsed.garage_type
+        requirement.basement_required = parsed.basement_required
+        requirement.basement_finished = parsed.basement_finished
+        requirement.basement_separate_entrance = parsed.basement_separate_entrance
+        requirement.basement_legal_suite = parsed.basement_legal_suite
+        requirement.city = parsed.city
+        requirement.sub_area = parsed.sub_area
         requirement.school_requirement = parsed.school_requirement
         requirement.timeline = parsed.timeline
         requirement.financing_type = parsed.financing_type
@@ -98,7 +110,7 @@ def update_requirement(
 
     for key, value in updates.items():
         if value is not None:
-            if key in ("locations", "must_haves", "nice_to_haves"):
+            if key in ("locations", "must_haves", "nice_to_haves", "property_types"):
                 setattr(requirement, key, json.dumps(value))
             else:
                 setattr(requirement, key, value)

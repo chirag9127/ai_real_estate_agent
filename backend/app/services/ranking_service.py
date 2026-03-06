@@ -196,6 +196,41 @@ async def _evaluate_semantic(
 
 # ── Score computation ─────────────────────────────────────────────────────
 
+MUST_HAVE_WEIGHT = 10
+NICE_TO_HAVE_WEIGHT = 7
+
+# Penalty multiplier applied in strict mode when any must-have fails
+_STRICT_PENALTY = 0.3
+
+
+
+# Mapping from quantitative check names to weight adjustment boost keys
+_CHECK_TO_BOOST_KEY: dict[str, str] = {
+    "budget": "price_weight_boost",
+    "bedrooms": "layout_weight_boost",
+    "bathrooms": "layout_weight_boost",
+    "sqft": "lot_size_weight_boost",
+    "property_type": "location_weight_boost",
+}
+
+# Keywords used to map semantic must-have/nice-to-have text to boost keys
+_SEMANTIC_BOOST_KEYWORDS: list[tuple[list[str], str]] = [
+    (["location", "neighborhood", "area", "commut", "transit", "district"], "location_weight_boost"),
+    (["price", "budget", "cost", "afford"], "price_weight_boost"),
+    (["lot", "yard", "land", "acreage"], "lot_size_weight_boost"),
+    (["layout", "room", "bedroom", "bathroom", "floor plan", "open concept"], "layout_weight_boost"),
+    (["basement", "cellar", "lower level"], "basement_weight_boost"),
+]
+
+
+def _get_semantic_boost_key(text: str) -> str | None:
+    """Return the boost key for a semantic must-have/nice-to-have text, or None."""
+    lower = text.lower()
+    for keywords, boost_key in _SEMANTIC_BOOST_KEYWORDS:
+        if any(kw in lower for kw in keywords):
+            return boost_key
+    return None
+
 
 def _compute_scores(
     listing: Listing,
@@ -203,9 +238,21 @@ def _compute_scores(
     semantic_must_haves: list[str],
     nice_to_haves: list[str],
     llm_result: dict[str, Any] | None,
+    scoring_mode: str = "strict",
+    weight_adjustments: dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    """Combine quantitative and semantic results into final scores."""
+    """Combine quantitative and semantic results into final scores.
+
+    Args:
+        scoring_mode: ``"strict"`` (default) applies a heavy penalty when any
+            must-have fails.  ``"flexible"`` uses a pure weighted average.
+        weight_adjustments: Optional dict of boost multipliers from rejection
+            learning (e.g. ``{"price_weight_boost": 1.25}``).  When provided,
+            the *importance* of matching criteria is increased – individual
+            criterion scores are still capped at 1.0.
+    """
     listing_id_str = str(listing.id)
+    adj = weight_adjustments or {}
 
     # ── Must-have evaluation ──
     all_must_have_checks: dict[str, dict] = dict(quant_checks)
@@ -230,9 +277,20 @@ def _compute_scores(
             }
 
     must_have_pass = all(c["pass"] for c in all_must_have_checks.values())
+
+    # Compute weighted must-have satisfaction using boost multipliers
     total_mh = len(all_must_have_checks)
-    passed_mh = sum(1 for c in all_must_have_checks.values() if c["pass"])
-    must_have_rate = passed_mh / total_mh if total_mh > 0 else 1.0
+    if total_mh > 0:
+        weighted_mh_sum = 0.0
+        total_mh_weight = 0.0
+        for check_name, check in all_must_have_checks.items():
+            boost_key = _CHECK_TO_BOOST_KEY.get(check_name) or _get_semantic_boost_key(check_name)
+            boost = adj.get(boost_key, 1.0) if boost_key else 1.0
+            weighted_mh_sum += (1.0 if check["pass"] else 0.0) * boost
+            total_mh_weight += boost
+        must_have_satisfaction = weighted_mh_sum / total_mh_weight
+    else:
+        must_have_satisfaction = 1.0
 
     # ── Nice-to-have evaluation ──
     nice_to_have_details: dict[str, dict] = {}
@@ -252,31 +310,51 @@ def _compute_scores(
                 "reason": "LLM unavailable; default score",
             }
 
+    # Compute weighted nice-to-have satisfaction using boost multipliers
     if nice_to_have_details:
-        nice_to_have_score = sum(
-            d.get("score", 0.5) for d in nice_to_have_details.values()
-        ) / len(nice_to_have_details)
+        weighted_nth_sum = 0.0
+        total_nth_weight = 0.0
+        for nth_name, detail in nice_to_have_details.items():
+            score = min(detail.get("score", 0.5), 1.0)
+            boost_key = _get_semantic_boost_key(nth_name)
+            boost = adj.get(boost_key, 1.0) if boost_key else 1.0
+            weighted_nth_sum += score * boost
+            total_nth_weight += boost
+        nice_to_have_satisfaction = weighted_nth_sum / total_nth_weight
     else:
-        nice_to_have_score = 1.0
+        nice_to_have_satisfaction = 1.0
 
-    # ── Overall score ──
-    # 60% must-have pass rate + 40% nice-to-have score
-    # Hard penalty if any must-have fails
-    if must_have_pass:
-        overall_score = 0.6 * must_have_rate + 0.4 * nice_to_have_score
-    else:
-        overall_score = 0.6 * must_have_rate + 0.4 * nice_to_have_score * 0.5
+    # ── Overall score (weighted average) ──
+    overall_score = (
+        must_have_satisfaction * MUST_HAVE_WEIGHT
+        + nice_to_have_satisfaction * NICE_TO_HAVE_WEIGHT
+    ) / (MUST_HAVE_WEIGHT + NICE_TO_HAVE_WEIGHT)
+
+    # In strict mode, apply a heavy penalty when any must-have fails
+    if scoring_mode == "strict" and not must_have_pass:
+        overall_score *= _STRICT_PENALTY
+
+    breakdown: dict[str, Any] = {
+        "must_have_checks": all_must_have_checks,
+        "nice_to_have_details": nice_to_have_details,
+        "must_have_rate": round(must_have_satisfaction, 4),
+        "must_have_satisfaction": round(must_have_satisfaction, 4),
+        "nice_to_have_satisfaction": round(nice_to_have_satisfaction, 4),
+        "scoring_mode": scoring_mode,
+        "weights": {
+            "must_have": MUST_HAVE_WEIGHT,
+            "nice_to_have": NICE_TO_HAVE_WEIGHT,
+        },
+    }
+
+    if adj:
+        breakdown["weight_adjustments"] = adj
 
     return {
         "overall_score": round(overall_score, 4),
         "must_have_pass": must_have_pass,
-        "nice_to_have_score": round(nice_to_have_score, 4),
-        "score_breakdown": {
-            "must_have_checks": all_must_have_checks,
-            "nice_to_have_details": nice_to_have_details,
-            "must_have_rate": round(must_have_rate, 4),
-            "weights": {"must_have": 0.6, "nice_to_have": 0.4},
-        },
+        "nice_to_have_score": round(nice_to_have_satisfaction, 4),
+        "score_breakdown": breakdown,
     }
 
 
@@ -289,8 +367,14 @@ async def rank_results(
     requirement: ExtractedRequirement,
     listings: list[Listing],
     llm: LLMProvider,
+    scoring_mode: str = "strict",
+    weight_adjustments: dict[str, float] | None = None,
 ) -> list[RankedResult]:
     """Score, rank, and persist RankedResult records.
+
+    Args:
+        scoring_mode: ``"strict"`` (default) or ``"flexible"``.
+        weight_adjustments: Optional boost multipliers from rejection learning.
 
     Returns list of RankedResult ORM objects sorted by score descending.
     """
@@ -327,6 +411,8 @@ async def rank_results(
             semantic_must_haves,
             nice_to_haves,
             llm_result,
+            scoring_mode=scoring_mode,
+            weight_adjustments=weight_adjustments,
         )
         scored.append((listing, scores))
 

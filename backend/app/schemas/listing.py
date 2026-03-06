@@ -18,5 +18,6 @@ class ListingResponse(BaseModel):
     year_built: int | None = None
     days_on_market: int | None = None
     zillow_url: str | None = None
+    mls_number: str | None = None
 
     model_config = {"from_attributes": True}
