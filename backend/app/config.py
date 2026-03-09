@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     llm_temperature: float = 0.1
+    llm_max_tokens: int = 2000
 
     # Resend email
     resend_api_key: str = ""
