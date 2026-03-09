@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.models.pipeline_run import PipelineRun
@@ -48,7 +48,7 @@ def approve_listings(
         db.query(PipelineRun).filter(PipelineRun.id == pipeline_run_id).first()
     )
     if pipeline_run:
-        pipeline_run.review_completed_at = datetime.now(UTC)
+        pipeline_run.review_completed_at = datetime.now(timezone.utc)
 
     db.commit()
     for rr in all_rankings:
