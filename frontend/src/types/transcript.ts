@@ -3,7 +3,7 @@ export interface Transcript {
   client_id: number | null;
   filename: string | null;
   raw_text: string;
-  upload_method: 'file' | 'paste';
+  upload_method: 'file' | 'paste' | 'google_docs';
   status: 'uploaded' | 'extracting' | 'extracted' | 'failed';
   created_at: string;
 }
@@ -12,7 +12,7 @@ export interface TranscriptListItem {
   id: number;
   client_id: number | null;
   filename: string | null;
-  upload_method: 'file' | 'paste';
+  upload_method: 'file' | 'paste' | 'google_docs';
   status: string;
   created_at: string;
 }

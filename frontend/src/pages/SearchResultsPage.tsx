@@ -74,6 +74,11 @@ export default function SearchResultsPage() {
                   ${listing.price?.toLocaleString() ?? 'N/A'}
                 </span>
                 <span className="opacity-70 uppercase text-[10px]">{listing.address}</span>
+                {listing.mls_number ? (
+                  <span className="text-[9px] uppercase opacity-50">MLS# {listing.mls_number}</span>
+                ) : listing.external_id ? (
+                  <span className="text-[9px] uppercase opacity-50">ID# {listing.external_id}</span>
+                ) : null}
               </div>
               <div className="px-6 py-3">
                 <span

@@ -5,6 +5,7 @@ export interface ReviewResponse {
   pipeline_run_id: number;
   rankings: RankedListing[];
   total: number;
+  suggestions: string[];
 }
 
 export async function getPendingReview(pipelineRunId: number): Promise<ReviewResponse> {
@@ -26,9 +27,12 @@ export async function approveListings(
 export async function rejectListing(
   pipelineRunId: number,
   rankingId: number,
+  reason: string,
+  details?: string,
 ): Promise<RankedListing> {
   const { data } = await apiClient.post<RankedListing>(
     `/review/${pipelineRunId}/reject/${rankingId}`,
+    { reason, details: details ?? null },
   );
   return data;
 }

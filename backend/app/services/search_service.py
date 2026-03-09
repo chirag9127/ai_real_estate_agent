@@ -128,6 +128,17 @@ def _map_zillow_prop_to_listing(
     if home_type:
         home_type = home_type.lower().replace("_", " ")
 
+    # MLS number — try several known locations in the Zillow response
+    mls_number = (
+        prop.get("mlsid")
+        or prop.get("mlsId")
+        or (prop.get("listing_sub_type") or {}).get("mls_id")
+        or prop.get("attributionInfo", {}).get("mlsId")
+        or prop.get("listingId")
+    )
+    if mls_number is not None:
+        mls_number = str(mls_number)
+
     return Listing(
         external_id=str(ext_id) if ext_id else None,
         pipeline_run_id=pipeline_run_id,
@@ -146,6 +157,7 @@ def _map_zillow_prop_to_listing(
         latitude=latitude,
         longitude=longitude,
         zillow_url=detail_url or None,
+        mls_number=mls_number,
         data_json=json.dumps(prop),
     )
 

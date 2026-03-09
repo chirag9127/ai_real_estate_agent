@@ -16,8 +16,13 @@ export async function runSearch(runId: number): Promise<PipelineRun> {
   return data;
 }
 
-export async function runRanking(runId: number): Promise<PipelineRun> {
-  const { data } = await apiClient.post<PipelineRun>(`/pipeline/${runId}/rank`);
+export async function runRanking(runId: number, scoringMode?: string, applyLearning?: boolean): Promise<PipelineRun> {
+  const searchParams = new URLSearchParams();
+  if (scoringMode) searchParams.set('scoring_mode', scoringMode);
+  if (applyLearning !== undefined) searchParams.set('apply_learning', String(applyLearning));
+  const qs = searchParams.toString();
+  const params = qs ? `?${qs}` : '';
+  const { data } = await apiClient.post<PipelineRun>(`/pipeline/${runId}/rank${params}`);
   return data;
 }
 

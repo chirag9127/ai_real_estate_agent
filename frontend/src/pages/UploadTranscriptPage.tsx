@@ -1,18 +1,45 @@
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useCallback, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { uploadTranscript, pasteTranscript } from '../api/transcripts';
 import { extractRequirements } from '../api/requirements';
+import { getAuthUrl, listDocs, importDoc, type GoogleCredentials, type GoogleDocItem } from '../api/google';
 import ErrorAlert from '../components/common/ErrorAlert';
+
+type Tab = 'file' | 'paste' | 'google';
 
 export default function UploadTranscriptPage() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<'file' | 'paste'>('file');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(() => {
+    const urlTab = searchParams.get('tab');
+    return urlTab === 'google' ? 'google' : urlTab === 'paste' ? 'paste' : 'file';
+  });
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState('');
   const [clientName, setClientName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  // Google Docs state
+  const [googleCreds, setGoogleCreds] = useState<GoogleCredentials | null>(() => {
+    const stored = sessionStorage.getItem('google_credentials');
+    return stored ? JSON.parse(stored) : null;
+  });
+  const [docs, setDocs] = useState<GoogleDocItem[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+
+  // Load docs when Google tab is active and credentials exist
+  useEffect(() => {
+    if (tab === 'google' && googleCreds && docs.length === 0) {
+      setDocsLoading(true);
+      listDocs(googleCreds)
+        .then(setDocs)
+        .catch(() => setError('Failed to load Google Docs. Please reconnect.'))
+        .finally(() => setDocsLoading(false));
+    }
+  }, [tab, googleCreds]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -21,7 +48,52 @@ export default function UploadTranscriptPage() {
     if (dropped) setFile(dropped);
   }, []);
 
+  const handleConnectGoogle = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const authUrl = await getAuthUrl();
+      window.location.href = authUrl;
+    } catch {
+      setError('Failed to start Google authentication.');
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnectGoogle = () => {
+    sessionStorage.removeItem('google_credentials');
+    setGoogleCreds(null);
+    setDocs([]);
+    setSelectedDocId(null);
+  };
+
+  const handleImportDoc = async (autoExtract: boolean) => {
+    if (!googleCreds || !selectedDocId) {
+      setError('Please select a document to import.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const transcript = await importDoc(googleCreds, selectedDocId);
+
+      if (autoExtract) {
+        await extractRequirements(transcript.id);
+      }
+
+      navigate(`/transcripts/${transcript.id}`);
+    } catch {
+      setError('Failed to import Google Doc. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (autoExtract: boolean) => {
+    if (tab === 'google') {
+      return handleImportDoc(autoExtract);
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -71,6 +143,14 @@ export default function UploadTranscriptPage() {
           >
             Paste Text
           </button>
+          <button
+            onClick={() => setTab('google')}
+            className={`flex-1 py-4 text-[11px] uppercase tracking-[1px] text-center cursor-pointer border-l border-ink transition-colors ${
+              tab === 'google' ? 'bg-ink text-surface' : 'hover:bg-ink/5'
+            }`}
+          >
+            Google Docs
+          </button>
         </div>
 
         <div className="p-6 space-y-4">
@@ -108,16 +188,16 @@ export default function UploadTranscriptPage() {
                     Browse Files
                     <input
                       type="file"
-                      accept=".txt,.md"
+                      accept=".txt,.md,.pdf,.docx,.doc"
                       className="hidden"
                       onChange={(e) => setFile(e.target.files?.[0] || null)}
                     />
                   </label>
-                  <p className="text-[9px] uppercase opacity-40 mt-3">Accepts .txt, .md files</p>
+                  <p className="text-[9px] uppercase opacity-40 mt-3">Accepts .txt, .md, .pdf, .docx, .doc files</p>
                 </div>
               )}
             </div>
-          ) : (
+          ) : tab === 'paste' ? (
             <div className="space-y-4">
               <div>
                 <label className="block text-[10px] uppercase tracking-[1px] mb-2">
@@ -144,26 +224,110 @@ export default function UploadTranscriptPage() {
                 />
               </div>
             </div>
+          ) : (
+            /* Google Docs tab */
+            <div className="space-y-4">
+              {!googleCreds ? (
+                <div className="border-2 border-dashed border-ink/30 p-12 text-center">
+                  <p className="text-[11px] uppercase opacity-50 mb-4">
+                    Connect your Google account to import documents
+                  </p>
+                  <button
+                    onClick={handleConnectGoogle}
+                    disabled={loading}
+                    className="text-[11px] uppercase border border-ink px-6 py-3 rounded-full hover:bg-ink hover:text-surface transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {loading ? 'Connecting...' : 'Connect Google Docs'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-[10px] uppercase tracking-[1px] opacity-60">
+                      Google Account Connected
+                    </p>
+                    <button
+                      onClick={handleDisconnectGoogle}
+                      className="text-[9px] uppercase border border-ink/40 px-3 py-1 rounded-full hover:bg-ink hover:text-surface transition-colors cursor-pointer"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+
+                  {docsLoading ? (
+                    <p className="text-center text-[11px] uppercase opacity-50 py-8">
+                      Loading documents...
+                    </p>
+                  ) : docs.length === 0 ? (
+                    <p className="text-center text-[11px] uppercase opacity-50 py-8">
+                      No Google Docs found
+                    </p>
+                  ) : (
+                    <div className="border border-ink/20 max-h-80 overflow-y-auto">
+                      {docs.map((doc) => (
+                        <button
+                          key={doc.id}
+                          onClick={() => setSelectedDocId(doc.id === selectedDocId ? null : doc.id)}
+                          className={`w-full text-left px-4 py-3 border-b border-ink/10 last:border-b-0 transition-colors cursor-pointer ${
+                            selectedDocId === doc.id
+                              ? 'bg-ink text-surface'
+                              : 'hover:bg-ink/5'
+                          }`}
+                        >
+                          <p className="text-[12px] font-medium">{doc.name}</p>
+                          <p className={`text-[9px] uppercase mt-1 ${
+                            selectedDocId === doc.id ? 'opacity-70' : 'opacity-40'
+                          }`}>
+                            Modified {new Date(doc.modifiedTime).toLocaleDateString()}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {error && <ErrorAlert message={error} />}
 
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={() => handleSubmit(true)}
-              disabled={loading}
-              className="flex-1 py-3 bg-ink text-surface text-[11px] uppercase tracking-[1px] cursor-pointer hover:bg-ink/80 transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Processing...' : 'Upload & Extract'}
-            </button>
-            <button
-              onClick={() => handleSubmit(false)}
-              disabled={loading}
-              className="py-3 px-6 border border-ink text-[11px] uppercase tracking-[1px] cursor-pointer hover:bg-ink/5 transition-colors disabled:opacity-50"
-            >
-              Upload Only
-            </button>
-          </div>
+          {tab === 'google' ? (
+            googleCreds && selectedDocId && (
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => handleImportDoc(true)}
+                  disabled={loading}
+                  className="flex-1 py-3 bg-ink text-surface text-[11px] uppercase tracking-[1px] cursor-pointer hover:bg-ink/80 transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'Importing...' : 'Import & Extract'}
+                </button>
+                <button
+                  onClick={() => handleImportDoc(false)}
+                  disabled={loading}
+                  className="py-3 px-6 border border-ink text-[11px] uppercase tracking-[1px] cursor-pointer hover:bg-ink/5 transition-colors disabled:opacity-50"
+                >
+                  Import Only
+                </button>
+              </div>
+            )
+          ) : (
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => handleSubmit(true)}
+                disabled={loading}
+                className="flex-1 py-3 bg-ink text-surface text-[11px] uppercase tracking-[1px] cursor-pointer hover:bg-ink/80 transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Processing...' : 'Upload & Extract'}
+              </button>
+              <button
+                onClick={() => handleSubmit(false)}
+                disabled={loading}
+                className="py-3 px-6 border border-ink text-[11px] uppercase tracking-[1px] cursor-pointer hover:bg-ink/5 transition-colors disabled:opacity-50"
+              >
+                Upload Only
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

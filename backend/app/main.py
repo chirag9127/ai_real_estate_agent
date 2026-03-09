@@ -8,8 +8,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import create_tables
+from app.database import create_tables, engine
+from app.utils.migrations import run_migrations
 from app.routers import (
+    google_auth,
     health,
     pipeline,
     rankings,
@@ -30,6 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     import app.models  # noqa: F401
 
     create_tables()
+    run_migrations(engine)
     os.makedirs(settings.upload_dir, exist_ok=True)
     yield
 
@@ -54,3 +57,4 @@ app.include_router(search.router, prefix=settings.api_prefix, tags=["search"])
 app.include_router(rankings.router, prefix=settings.api_prefix, tags=["rankings"])
 app.include_router(review.router, prefix=settings.api_prefix, tags=["review"])
 app.include_router(send.router, prefix=settings.api_prefix, tags=["send"])
+app.include_router(google_auth.router, prefix=settings.api_prefix, tags=["google"])

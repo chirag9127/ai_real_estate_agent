@@ -11,9 +11,21 @@ You must output ONLY a valid JSON object with exactly these fields:
   "must_haves": ["List of deal-breaker requirements that MUST be met"],
   "nice_to_haves": ["List of preferences that are desired but not required"],
   "property_type": "Type of property: house, condo, townhouse, multi-family, land, or empty string",
+  "property_types": ["Array of property types from: Detached, Semi-detached, Freehold townhouse, Condo townhouse, Condo apartment, Linked"],
   "min_beds": "Minimum number of bedrooms (integer, 0 if unknown)",
   "min_baths": "Minimum number of bathrooms (integer, 0 if unknown)",
   "min_sqft": "Minimum square footage (integer, 0 if unknown)",
+  "min_full_baths": "Minimum full bathrooms (integer, 0 if unknown)",
+  "min_total_baths": "Minimum total bathrooms including half baths (integer, 0 if unknown)",
+  "min_total_parking": "Minimum total parking spaces (integer, 0 if unknown)",
+  "min_garage_spaces": "Minimum garage spaces (integer, 0 if unknown)",
+  "garage_type": "attached, detached, or empty string if unknown",
+  "basement_required": "Whether a basement is required (boolean, false if not mentioned)",
+  "basement_finished": "Whether the basement must be finished (boolean, false if not mentioned)",
+  "basement_separate_entrance": "Whether the basement needs a separate entrance (boolean, false if not mentioned)",
+  "basement_legal_suite": "Whether a legal secondary suite in the basement is required (boolean, false if not mentioned)",
+  "city": "Primary city or municipality (string, empty if unknown)",
+  "sub_area": "Specific sub-area, neighborhood, or district within the city (string, empty if unknown)",
   "school_requirement": "School district or school quality requirements (string, empty if none)",
   "timeline": "Move-in timeline or urgency description (string, empty if unknown)",
   "financing_type": "Loan type: conventional, FHA, VA, cash, or empty string if unknown",
@@ -28,7 +40,10 @@ EXTRACTION RULES:
 5. For confidence_score: 1.0 means everything was explicitly stated; 0.5 means significant inference; below 0.3 means very little information available.
 6. Parse emotional signals for urgency in the timeline field (e.g., "desperate to move", "lease ending soon").
 7. If speaker labels are missing, infer who is the agent (Harry) vs. the client from context.
-8. Return ONLY the JSON object. No markdown, no explanation, no wrapping."""
+8. property_types is multi-select; include ALL property types the client considers acceptable.
+9. city and sub_area should be extracted separately from the free-form locations list. locations captures all mentioned areas; city is the primary municipality and sub_area is the specific neighborhood or district.
+10. Basement fields (basement_required, basement_finished, basement_separate_entrance, basement_legal_suite) default to false if not explicitly mentioned. Parking fields (min_total_parking, min_garage_spaces) default to 0 if not explicitly mentioned.
+11. Return ONLY the JSON object. No markdown, no explanation, no wrapping."""
 
 
 def build_extraction_user_prompt(transcript_text: str) -> str:

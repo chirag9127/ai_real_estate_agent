@@ -35,5 +35,6 @@ class Listing(Base):
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     zillow_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    mls_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     data_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
