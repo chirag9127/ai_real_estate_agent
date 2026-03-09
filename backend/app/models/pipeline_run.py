@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -43,24 +41,24 @@ class PipelineRun(Base):
         String(20), default=PipelineStatus.PENDING.value
     )
 
-    ingestion_completed_at: Mapped[datetime | None] = mapped_column(
+    ingestion_completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True
     )
-    extraction_completed_at: Mapped[datetime | None] = mapped_column(
+    extraction_completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True
     )
-    search_completed_at: Mapped[datetime | None] = mapped_column(
+    search_completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True
     )
-    ranking_completed_at: Mapped[datetime | None] = mapped_column(
+    ranking_completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True
     )
-    review_completed_at: Mapped[datetime | None] = mapped_column(
+    review_completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True
     )
-    send_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    send_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()
