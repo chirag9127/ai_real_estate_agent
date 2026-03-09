@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -26,21 +24,21 @@ class RankedResult(Base):
     requirement_id: Mapped[int] = mapped_column(
         ForeignKey("extracted_requirements.id"), nullable=False
     )
-    overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    must_have_pass: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    nice_to_have_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    rank_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    score_breakdown_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    approved_by_harry: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    rejection_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    rejection_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    overall_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    must_have_pass: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    nice_to_have_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    rank_position: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    score_breakdown_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    approved_by_harry: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    rejection_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sent_to_client: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
-    listing: Mapped[Listing] = relationship(lazy="joined")
+    listing: Mapped["Listing"] = relationship(lazy="joined")
 
     @property
-    def score_breakdown(self) -> dict[str, Any] | None:
+    def score_breakdown(self) -> Optional[Dict[str, Any]]:
         if self.score_breakdown_json:
             return json.loads(self.score_breakdown_json)
         return None
