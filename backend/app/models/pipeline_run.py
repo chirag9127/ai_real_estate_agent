@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
@@ -11,7 +13,7 @@ if TYPE_CHECKING:
     from app.models.transcript import Transcript
 
 
-class PipelineStage(StrEnum):
+class PipelineStage(str, Enum):
     INGESTION = "ingestion"
     EXTRACTION = "extraction"
     SEARCH = "search"
@@ -20,7 +22,7 @@ class PipelineStage(StrEnum):
     SEND = "send"
 
 
-class PipelineStatus(StrEnum):
+class PipelineStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
