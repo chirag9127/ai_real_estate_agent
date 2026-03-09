@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -325,7 +325,7 @@ def send_email(
         db.query(PipelineRun).filter(PipelineRun.id == pipeline_run_id).first()
     )
     if pipeline_run:
-        pipeline_run.send_completed_at = datetime.now(UTC)
+        pipeline_run.send_completed_at = datetime.now(timezone.utc)
         pipeline_run.current_stage = "send"
 
     # Record the send in email_sends tracking table
@@ -396,7 +396,7 @@ def record_feedback(db: Session, send_id: int, feedback: str) -> EmailSend | Non
         return None
 
     email_send.client_feedback = feedback
-    email_send.client_feedback_at = datetime.now(UTC)
+    email_send.client_feedback_at = datetime.now(timezone.utc)
     email_send.status = "responded"
     db.commit()
     db.refresh(email_send)

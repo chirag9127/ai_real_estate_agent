@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.models.pipeline_run import PipelineRun, PipelineStage, PipelineStatus
@@ -27,7 +27,7 @@ def start_pipeline(db: Session, transcript_id: int) -> PipelineRun:
         transcript_id=transcript_id,
         current_stage=PipelineStage.EXTRACTION.value,
         status=PipelineStatus.IN_PROGRESS.value,
-        ingestion_completed_at=datetime.now(UTC),
+        ingestion_completed_at=datetime.now(timezone.utc),
     )
     db.add(pipeline_run)
     db.commit()
@@ -44,7 +44,7 @@ async def run_extraction_step(
         await extraction_service.extract_requirements(
             db, pipeline_run.transcript_id, llm
         )
-        pipeline_run.extraction_completed_at = datetime.now(UTC)
+        pipeline_run.extraction_completed_at = datetime.now(timezone.utc)
         pipeline_run.current_stage = PipelineStage.SEARCH.value
         db.commit()
     except Exception as e:
@@ -78,7 +78,7 @@ async def run_search_step(db: Session, run_id: int) -> PipelineRun:
         await search_service.search_listings(
             db, requirement.id, pipeline_run_id=pipeline_run.id
         )
-        pipeline_run.search_completed_at = datetime.now(UTC)
+        pipeline_run.search_completed_at = datetime.now(timezone.utc)
         pipeline_run.current_stage = PipelineStage.RANKING.value
         db.commit()
     except Exception as e:
@@ -139,7 +139,7 @@ async def run_ranking_step(
             scoring_mode=scoring_mode,
             weight_adjustments=weight_adjustments,
         )
-        pipeline_run.ranking_completed_at = datetime.now(UTC)
+        pipeline_run.ranking_completed_at = datetime.now(timezone.utc)
         pipeline_run.current_stage = PipelineStage.REVIEW.value
         pipeline_run.status = PipelineStatus.COMPLETED.value
         db.commit()
