@@ -14,19 +14,21 @@ import pytest
 # Ensure the backend package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.services.zillow_client import (  # noqa: E402
-    ZillowAPIError,
+from app.services.search_service import (
+    _map_zillow_prop_to_listing,
+    _parse_int_from_string,
+)
+from app.services.zillow_client import (
     ZillowClient,
     _geocode_location,
     _location_to_zillow_slug,
     build_zillow_search_url,
 )
-from app.services.search_service import _map_zillow_prop_to_listing, _parse_int_from_string  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Unit tests for helpers (always run, no API key needed)
 # ---------------------------------------------------------------------------
+
 
 class TestLocationSlug:
     def test_simple_city_state(self):
@@ -124,51 +126,73 @@ class TestMapZillowPropToListing:
     }
 
     def test_address_parsing(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert "9222 S Harvard Ave" in listing.address
         assert "Chicago" in listing.address
         assert "IL" in listing.address
 
     def test_price(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.price == 175000
 
     def test_beds_baths(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.bedrooms == 3
         assert listing.bathrooms == 1.0
 
     def test_sqft(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.sqft == 1010
 
     def test_image_url(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.image_url == "https://photos.zillowstatic.com/example.jpg"
 
     def test_zillow_url_relative(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.zillow_url.startswith("https://www.zillow.com/homedetails/")
 
     def test_days_on_market(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.days_on_market == 1
 
     def test_home_type(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.property_type == "single family"
 
     def test_coordinates(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.latitude == pytest.approx(41.724247)
         assert listing.longitude == pytest.approx(-87.632316)
 
     def test_external_id(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.external_id == "2058616222"
 
     def test_neighborhood(self):
-        listing = _map_zillow_prop_to_listing(self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            self.SAMPLE_PROP, pipeline_run_id=1, requirement_id=1
+        )
         assert listing.neighborhood == "Chicago"
 
 
@@ -176,8 +200,10 @@ class TestMapZillowPropToListing:
 # Integration tests — require RAPIDAPI_KEY to be set
 # ---------------------------------------------------------------------------
 
+
 def _has_api_key() -> bool:
     from app.config import settings
+
     return bool(settings.rapidapi_key)
 
 
@@ -194,6 +220,7 @@ class TestGeocode:
     @pytest.mark.asyncio
     async def test_geocode_new_york(self):
         import httpx
+
         async with httpx.AsyncClient() as client:
             bounds = await _geocode_location("New York, NY", client)
         assert bounds is not None
@@ -206,6 +233,7 @@ class TestGeocode:
     @pytest.mark.asyncio
     async def test_geocode_chicago(self):
         import httpx
+
         async with httpx.AsyncClient() as client:
             bounds = await _geocode_location("Chicago, IL", client)
         assert bounds is not None
@@ -214,6 +242,7 @@ class TestGeocode:
     @pytest.mark.asyncio
     async def test_geocode_nonsense(self):
         import httpx
+
         async with httpx.AsyncClient() as client:
             bounds = await _geocode_location("xyznonexistentplace12345", client)
         assert bounds is None
@@ -282,7 +311,9 @@ class TestZillowClientIntegration:
         expected_keys = {"address", "detailUrl", "imgSrc"}
         actual_keys = set(prop.keys())
         missing = expected_keys - actual_keys
-        assert not missing, f"Missing expected keys: {missing}. Got: {sorted(actual_keys)}"
+        assert not missing, (
+            f"Missing expected keys: {missing}. Got: {sorted(actual_keys)}"
+        )
 
     @pytest.mark.asyncio
     async def test_full_mapping_with_live_data(self):
@@ -291,7 +322,9 @@ class TestZillowClientIntegration:
         results = await client.search_by_url("New York, NY")
         assert len(results) > 0
 
-        listing = _map_zillow_prop_to_listing(results[0], pipeline_run_id=None, requirement_id=1)
+        listing = _map_zillow_prop_to_listing(
+            results[0], pipeline_run_id=None, requirement_id=1
+        )
         assert listing.address, "Address should not be empty"
         assert listing.external_id, "External ID should not be empty"
 

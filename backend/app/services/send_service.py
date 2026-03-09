@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import resend
-from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.email_send import EmailSend
 from app.models.pipeline_run import PipelineRun
 from app.models.ranking import RankedResult
 from app.models.requirement import ExtractedRequirement
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +110,12 @@ def _build_listing_html(rr: RankedResult) -> str:
 
     desc_html = ""
     if listing.description and len(listing.description) > 50:
-        truncated = listing.description[:200] + ("..." if len(listing.description) > 200 else "")
-        desc_html = f'<div style="color:#888;font-size:13px;margin-top:6px;">{truncated}</div>'
+        truncated = listing.description[:200] + (
+            "..." if len(listing.description) > 200 else ""
+        )
+        desc_html = (
+            f'<div style="color:#888;font-size:13px;margin-top:6px;">{truncated}</div>'
+        )
 
     return f"""
     <tr>
@@ -164,7 +171,6 @@ def _build_email_html(
     sig_brokerage = brokerage_name if brokerage_name else ""
 
     # Build footer branding
-    footer_brokerage = brokerage_name if brokerage_name else ""
     footer_logo = (
         f'<br><img src="{brokerage_logo_url}" alt="{brokerage_name}" '
         f'style="max-height:40px;margin-top:8px;">'
@@ -288,15 +294,19 @@ def send_email(
     else:
         resend.api_key = settings.resend_api_key
         try:
-            resend.Emails.send({
-                "from": settings.email_from,
-                "to": [recipient_email],
-                "subject": subject_line,
-                "html": html_body,
-            })
+            resend.Emails.send(
+                {
+                    "from": settings.email_from,
+                    "to": [recipient_email],
+                    "subject": subject_line,
+                    "html": html_body,
+                }
+            )
             logger.info(
                 "Email sent to %s with %d listings for pipeline_run_id=%d",
-                recipient_email, count, pipeline_run_id,
+                recipient_email,
+                count,
+                pipeline_run_id,
             )
         except Exception:
             logger.exception("Resend email failed for %s", recipient_email)
@@ -315,7 +325,7 @@ def send_email(
         db.query(PipelineRun).filter(PipelineRun.id == pipeline_run_id).first()
     )
     if pipeline_run:
-        pipeline_run.send_completed_at = datetime.now(timezone.utc)
+        pipeline_run.send_completed_at = datetime.now(UTC)
         pipeline_run.current_stage = "send"
 
     # Record the send in email_sends tracking table
@@ -386,7 +396,7 @@ def record_feedback(db: Session, send_id: int, feedback: str) -> EmailSend | Non
         return None
 
     email_send.client_feedback = feedback
-    email_send.client_feedback_at = datetime.now(timezone.utc)
+    email_send.client_feedback_at = datetime.now(UTC)
     email_send.status = "responded"
     db.commit()
     db.refresh(email_send)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -22,8 +21,8 @@ class EmailSend(Base):
     tone: Mapped[str] = mapped_column(String(50), nullable=False)
     subject: Mapped[str] = mapped_column(String(500), nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    client_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    client_feedback_at: Mapped[Optional[datetime]] = mapped_column(
+    client_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    client_feedback_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
     status: Mapped[str] = mapped_column(

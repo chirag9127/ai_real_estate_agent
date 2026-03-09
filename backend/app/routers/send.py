@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.schemas.email_send import EmailSendResponse, FeedbackRequest
 from app.services import send_service
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/send")
 

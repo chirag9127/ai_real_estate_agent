@@ -1,0 +1,77 @@
+[project]
+name = "ai-real-estate-agent-backend"
+version = "0.1.0"
+description = "AI Real Estate Agent Backend"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "F",      # Pyflakes - unused imports, variables, etc.
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort - import sorting
+    "N",      # pep8-naming
+    "UP",     # pyupgrade - modernize syntax
+    "B",      # flake8-bugbear - common bugs
+    "A",      # flake8-builtins - shadowing builtins
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "TC",     # flake8-type-checking
+    "RUF",    # Ruff-specific rules
+    "PIE",    # flake8-pie - misc lints
+    "PT",     # flake8-pytest-style
+    "RET",    # flake8-return
+    "T20",    # flake8-print - no print statements
+    "ARG",    # flake8-unused-arguments
+    "DTZ",    # flake8-datetimez
+    "LOG",    # flake8-logging
+    "G",      # flake8-logging-format
+    "ASYNC",  # flake8-async
+    "S",      # flake8-bandit - security
+    "BLE",    # flake8-blind-except
+    "COM",    # flake8-commas
+    "ISC",    # flake8-implicit-str-concat
+    "ICN",    # flake8-import-conventions
+    "PERF",   # Perflint - performance
+    "FURB",   # refurb - modernize
+    "TID",    # flake8-tidy-imports
+]
+
+ignore = [
+    "E501",    # Line too long - handled by formatter; string literals may exceed limit
+    "COM812",  # Missing trailing comma - conflicts with formatter
+    "ISC001",  # Implicit string concat on single line - conflicts with formatter
+    "B008",    # Do not perform function calls in argument defaults - needed for FastAPI Depends()
+    "ARG001",  # Unused function argument - common in FastAPI dependency injection
+    "RUF012",  # Mutable class attributes should be annotated with ClassVar
+]
+
+fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use assert, broader exceptions, unused args, and print statements
+"tests/**/*.py" = ["S101", "BLE001", "ARG", "T20"]
+# Init files can have unused imports (re-exports)
+"__init__.py" = ["F401"]
+# SQLAlchemy models need runtime type imports for Mapped[] column inference
+"app/models/*.py" = ["TC001", "TC002", "TC003"]
+# Pydantic schemas need runtime type imports for field validation
+"app/schemas/*.py" = ["TC001", "TC002", "TC003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

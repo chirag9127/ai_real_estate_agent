@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
 
@@ -39,4 +42,6 @@ def create_tables() -> None:
     """Create any missing tables. SQLAlchemy's create_all is idempotent —
     it only creates tables that don't already exist (never drops/recreates)."""
     Base.metadata.create_all(bind=engine)
-    logger.info("Database tables ensured (%d models registered)", len(Base.metadata.tables))
+    logger.info(
+        "Database tables ensured (%d models registered)", len(Base.metadata.tables)
+    )

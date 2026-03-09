@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy.orm import Session
-
-from app.llm.base import LLMProvider
 from app.models.pipeline_run import PipelineRun, PipelineStage, PipelineStatus
 from app.models.transcript import Transcript
 from app.services import extraction_service, ranking_service, rejection_learning_service, search_service
 from app.utils.exceptions import PipelineRunNotFoundError, TranscriptNotFoundError
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
 
 def start_pipeline(db: Session, transcript_id: int) -> PipelineRun:
     """Create a pipeline run and mark ingestion as complete."""
-    transcript = (
-        db.query(Transcript).filter(Transcript.id == transcript_id).first()
-    )
+    transcript = db.query(Transcript).filter(Transcript.id == transcript_id).first()
     if not transcript:
         raise TranscriptNotFoundError(f"Transcript {transcript_id} not found")
 
@@ -26,7 +27,7 @@ def start_pipeline(db: Session, transcript_id: int) -> PipelineRun:
         transcript_id=transcript_id,
         current_stage=PipelineStage.EXTRACTION.value,
         status=PipelineStatus.IN_PROGRESS.value,
-        ingestion_completed_at=datetime.now(timezone.utc),
+        ingestion_completed_at=datetime.now(UTC),
     )
     db.add(pipeline_run)
     db.commit()
@@ -43,7 +44,7 @@ async def run_extraction_step(
         await extraction_service.extract_requirements(
             db, pipeline_run.transcript_id, llm
         )
-        pipeline_run.extraction_completed_at = datetime.now(timezone.utc)
+        pipeline_run.extraction_completed_at = datetime.now(UTC)
         pipeline_run.current_stage = PipelineStage.SEARCH.value
         db.commit()
     except Exception as e:
@@ -77,7 +78,7 @@ async def run_search_step(db: Session, run_id: int) -> PipelineRun:
         await search_service.search_listings(
             db, requirement.id, pipeline_run_id=pipeline_run.id
         )
-        pipeline_run.search_completed_at = datetime.now(timezone.utc)
+        pipeline_run.search_completed_at = datetime.now(UTC)
         pipeline_run.current_stage = PipelineStage.RANKING.value
         db.commit()
     except Exception as e:
@@ -109,9 +110,7 @@ async def run_ranking_step(
         .first()
     )
     listings = (
-        db.query(Listing)
-        .filter(Listing.pipeline_run_id == pipeline_run.id)
-        .all()
+        db.query(Listing).filter(Listing.pipeline_run_id == pipeline_run.id).all()
     )
 
     if not requirement or not listings:
@@ -140,7 +139,7 @@ async def run_ranking_step(
             scoring_mode=scoring_mode,
             weight_adjustments=weight_adjustments,
         )
-        pipeline_run.ranking_completed_at = datetime.now(timezone.utc)
+        pipeline_run.ranking_completed_at = datetime.now(UTC)
         pipeline_run.current_stage = PipelineStage.REVIEW.value
         pipeline_run.status = PipelineStatus.COMPLETED.value
         db.commit()

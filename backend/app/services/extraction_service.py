@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
-from sqlalchemy.orm import Session
-
-from app.llm.base import LLMProvider
 from app.models.requirement import ExtractedRequirement
 from app.models.transcript import Transcript
 from app.schemas.requirement import LLMExtractionResult
 from app.utils.exceptions import ExtractionError, TranscriptNotFoundError
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +20,7 @@ logger = logging.getLogger(__name__)
 async def extract_requirements(
     db: Session, transcript_id: int, llm: LLMProvider
 ) -> ExtractedRequirement:
-    transcript = (
-        db.query(Transcript).filter(Transcript.id == transcript_id).first()
-    )
+    transcript = db.query(Transcript).filter(Transcript.id == transcript_id).first()
     if not transcript:
         raise TranscriptNotFoundError(f"Transcript {transcript_id} not found")
 

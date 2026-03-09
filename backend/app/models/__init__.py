@@ -10,10 +10,10 @@ from app.models.transcript import Transcript
 __all__ = [
     "Client",
     "EmailSend",
-    "Transcript",
     "ExtractedRequirement",
     "Listing",
+    "PipelineRun",
     "RankedResult",
     "RejectionReason",
-    "PipelineRun",
+    "Transcript",
 ]
